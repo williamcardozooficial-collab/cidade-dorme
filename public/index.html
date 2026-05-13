@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Cidade Dorme</title>
+        <link rel="stylesheet" href="/style.css">
+        </head>
+        <body>
+          <div id="app">
+              <div id="login-screen" class="screen active">
+                    <div class="bg-stars"></div>
+                          <div class="login-box">
+                                  <div class="logo">
+                                            <div class="moon-wrap">&#127769;</div>
+                                                      <h1>Cidade Dorme</h1>
+                                                                <p class="tagline">O jogo de deducao social</p>
+                                                                        </div>
+                                                                                <button onclick="window.location='/auth/google'" class="btn-google">
+                                                                                          Entrar com Google
+                                                                                                  </button>
+                                                                                                        </div>
+                                                                                                            </div>
+                                                                                                                <div id="home-screen" class="screen">
+                                                                                                                      <header>
+                                                                                                                              <div class="header-left">
+                                                                                                                                        <strong>Cidade Dorme</strong>
+                                                                                                                                                </div>
+                                                                                                                                                        <div class="header-right">
+                                                                                                                                                                  <img id="user-avatar" src="" alt="" class="avatar">
+                                                                                                                                                                            <span id="user-name"></span>
+                                                                                                                                                                                      <a href="/auth/logout" class="btn-logout">Sair</a>
+                                                                                                                                                                                              </div>
+                                                                                                                                                                                                    </header>
+                                                                                                                                                                                                          <main>
+                                                                                                                                                                                                                  <h1 class="welcome-title">Bem-vindo, <span id="welcome-name">Jogador</span>!</h1>
+                                                                                                                                                                                                                          <div class="menu-cards">
+                                                                                                                                                                                                                                    <div class="card" id="card-criar">
+                                                                                                                                                                                                                                                <h3>Criar Sala</h3>
+                                                                                                                                                                                                                                                            <p>Crie uma nova partida e convide amigos</p>
+                                                                                                                                                                                                                                                                      </div>
+                                                                                                                                                                                                                                                                                <div class="card" id="card-entrar">
+                                                                                                                                                                                                                                                                                            <h3>Entrar em Sala</h3>
+                                                                                                                                                                                                                                                                                                        <p>Entre numa partida com um codigo</p>
+                                                                                                                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                                                                                                                                                          </div>
+                                                                                                                                                                                                                                                                                                                                </main>
+                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                      </div>
+                                                                                                                                                                                                                                                                                                                                        <script src="/socket.io/socket.io.js"></script>
+                                                                                                                                                                                                                                                                                                                                          <script src="/app.js"></script>
+                                                                                                                                                                                                                                                                                                                                          </body>
+                                                                                                                                                                                                                                                                                                                                          </html>
