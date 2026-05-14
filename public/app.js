@@ -62,12 +62,12 @@ async function carregarSalas() {
       div.className = 'sala-item';
       div.innerHTML =
         '<div class="sala-info">' +
-          '<span class="sala-codigo">' + sala.code + '</span>' +
-          '<span class="sala-host">Host: ' + sala.host + '</span>' +
+        '<span class="sala-codigo">' + sala.code + '</span>' +
+        '<span class="sala-host">Host: ' + sala.host + '</span>' +
         '</div>' +
         '<div class="sala-right">' +
-          '<span class="sala-players">👤 ' + sala.players + ' jogadores</span>' +
-          '<button class="btn-entrar-sala" data-code="' + sala.code + '">Entrar</button>' +
+        '<span class="sala-players">\u{1F465} ' + sala.players + ' jogadores</span>' +
+        '<button class="btn-entrar-sala" data-code="' + sala.code + '">Entrar</button>' +
         '</div>';
       lista.appendChild(div);
     });
@@ -118,13 +118,22 @@ function renderRoom(room) {
   });
 
   const startBtn = document.getElementById('btn-start');
-  if (currentUser && room.host === currentUser.id) {
+  const fakeBtn = document.getElementById('btn-add-fake');
+  const isHost = currentUser && room.host === currentUser.id;
+
+  if (isHost) {
     startBtn.style.display = 'block';
     const canStart = room.players.length >= room.minPlayers;
     startBtn.disabled = !canStart;
     startBtn.title = canStart ? '' : 'Precisa de pelo menos ' + room.minPlayers + ' jogadores';
+
+    // Mostrar botao de teste se ainda nao tiver jogadores suficientes
+    if (fakeBtn) {
+      fakeBtn.style.display = room.players.length < room.minPlayers ? 'block' : 'none';
+    }
   } else {
     startBtn.style.display = 'none';
+    if (fakeBtn) fakeBtn.style.display = 'none';
   }
 }
 
@@ -168,6 +177,19 @@ document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   await fetch('/api/rooms/' + currentRoom.code + '/leave', { method: 'DELETE' });
   currentRoom = null;
   showHome(currentUser);
+});
+
+// Botao adicionar jogadores ficticios (para testes)
+document.getElementById('btn-add-fake').addEventListener('click', async () => {
+  if (!currentRoom) return;
+  const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  currentRoom = data.room;
+  renderRoom(data.room);
 });
 
 socket.on('room-update', (room) => {
