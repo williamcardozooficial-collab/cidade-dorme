@@ -35,16 +35,8 @@
   <main class="home-main">
     <h2>Bem-vindo, <span id="welcome-name"></span>!</h2>
     <div class="cards">
-      <div class="card" id="card-criar">
-        <div class="card-icon">🏠</div>
-        <div class="card-title">Criar Sala</div>
-        <div class="card-desc">Crie uma nova sala e convide amigos</div>
-      </div>
-      <div class="card" id="card-entrar">
-        <div class="card-icon">🚪</div>
-        <div class="card-title">Entrar em Sala</div>
-        <div class="card-desc">Veja salas ativas ou busque pelo codigo</div>
-      </div>
+      <div class="card" id="card-criar"><div class="card-icon">🏠</div><div class="card-title">Criar Sala</div><div class="card-desc">Crie uma nova sala e convide amigos</div></div>
+      <div class="card" id="card-entrar"><div class="card-icon">🚪</div><div class="card-title">Entrar em Sala</div><div class="card-desc">Veja salas ativas ou busque pelo codigo</div></div>
     </div>
   </main>
 </div>
@@ -53,22 +45,15 @@
 <div id="join-screen" class="screen">
   <header>
     <div class="header-left">🌙 Cidade Dorme</div>
-    <div class="header-right">
-      <button id="btn-voltar-join" class="btn-sair">← Voltar</button>
-    </div>
+    <div class="header-right"><button id="btn-voltar-join" class="btn-sair">← Voltar</button></div>
   </header>
   <main class="join-main">
     <div class="join-busca">
       <input id="input-codigo" type="text" placeholder="Digitar codigo da sala..." maxlength="6" class="input-codigo">
       <button id="btn-buscar-codigo" class="btn-buscar">Entrar</button>
     </div>
-    <div class="salas-header">
-      <h3>Salas Abertas</h3>
-      <button id="btn-atualizar" class="btn-refresh">↻ Atualizar</button>
-    </div>
-    <div id="salas-lista" class="salas-lista">
-      <div class="salas-loading">Carregando salas...</div>
-    </div>
+    <div class="salas-header"><h3>Salas Abertas</h3><button id="btn-atualizar" class="btn-refresh">↻ Atualizar</button></div>
+    <div id="salas-lista" class="salas-lista"><div class="salas-loading">Carregando salas...</div></div>
   </main>
 </div>
 
@@ -98,39 +83,84 @@
   </main>
 </div>
 
-<!-- JOGO - NOITE -->
+<!-- NOITE -->
 <div id="game-screen" class="screen">
   <main class="game-main">
-    <!-- Fundo estrelado animado -->
     <div class="game-stars"></div>
-
     <div class="game-content">
-      <!-- Papel do jogador -->
+      <div id="game-rodada" class="game-rodada">Rodada 1</div>
       <div id="game-role" class="game-role">...</div>
       <p id="game-role-desc" class="game-role-desc"></p>
-
-      <!-- Countdown -->
       <div class="countdown-wrap">
         <div id="game-countdown" class="countdown-num">60s</div>
-        <div class="countdown-track">
-          <div id="countdown-bar" class="countdown-bar" style="width:100%"></div>
-        </div>
+        <div class="countdown-track"><div id="countdown-bar" class="countdown-bar" style="width:100%"></div></div>
       </div>
-
-      <!-- Lista de vitimas (so assassino ve) -->
       <div id="vitimas-section" style="display:none">
         <p class="vitimas-title">Escolha sua vítima:</p>
         <div id="vitimas-list" class="vitimas-list"></div>
       </div>
-
-      <!-- Resultado do assassinato -->
       <div id="kill-result-box" class="kill-result-box" style="display:none">
         <div id="kill-icon" class="kill-icon">☠️</div>
         <div id="kill-msg" class="kill-msg"></div>
         <div id="kill-sub" class="kill-sub"></div>
       </div>
+    </div>
+  </main>
+</div>
 
-      <p id="game-overlay-text" class="game-overlay-text"></p>
+<!-- VOTAÇÃO -->
+<div id="vote-screen" class="screen">
+  <header class="vote-header">
+    <div class="header-left">☀️ Discussão</div>
+    <div class="header-right">
+      <button id="btn-mic" class="btn-mic mic-off" style="display:none">🔇 Microfone</button>
+    </div>
+  </header>
+  <main class="vote-main">
+    <div class="vote-top">
+      <div id="vote-turno" class="vote-turno">Turno 1 de 7</div>
+      <div class="countdown-wrap" style="max-width:300px">
+        <div id="vote-countdown" class="countdown-num" style="font-size:2rem">60s</div>
+        <div class="countdown-track"><div id="vote-bar" class="countdown-bar" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <div class="vote-center">
+      <div class="vote-votante-box">
+        <div id="vote-votante-avatar"></div>
+        <div id="vote-votante-nome" class="vote-votante-nome"></div>
+        <div id="vote-falando" class="vote-falando">🎙️ Falando...</div>
+      </div>
+      <div id="vote-msg" class="vote-msg"></div>
+    </div>
+
+    <div id="vote-alvos-section">
+      <p class="vitimas-title">Vote em quem é o assassino:</p>
+      <div id="vote-alvos" class="vitimas-list"></div>
+    </div>
+
+    <div class="vote-placar-wrap">
+      <div class="vote-placar-title">Votos até agora:</div>
+      <div id="vote-placar" class="vote-placar"></div>
+    </div>
+  </main>
+</div>
+
+<!-- RESULTADO -->
+<div id="result-screen" class="screen">
+  <main class="result-main">
+    <div class="game-stars"></div>
+    <div class="result-content">
+      <div id="result-icon" class="result-icon">🏆</div>
+      <div id="result-title" class="result-title"></div>
+      <div id="result-sub" class="result-sub"></div>
+      <div id="result-role-reveal" class="result-role-reveal" style="display:none">
+        <div id="result-elim-avatar"></div>
+        <div id="result-elim-nome" class="result-elim-nome"></div>
+        <div id="result-elim-role" class="role-badge"></div>
+      </div>
+      <div class="result-msg-next">O jogo continua em instantes...</div>
+      <button id="result-back-btn" class="btn-start" style="display:none;margin-top:16px">Voltar à Sala</button>
     </div>
   </main>
 </div>
@@ -138,4 +168,4 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>
-</html>
+          </html>
