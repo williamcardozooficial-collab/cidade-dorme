@@ -20,6 +20,16 @@ function generateCode() {
   return code;
 }
 
+// Jogadores fictícios para testes
+const FAKE_PLAYERS = [
+  { id: 'fake_1', name: 'Ana Silva', photo: 'https://i.pravatar.cc/80?img=1', isHost: false },
+  { id: 'fake_2', name: 'Bruno Costa', photo: 'https://i.pravatar.cc/80?img=3', isHost: false },
+  { id: 'fake_3', name: 'Carla Mendes', photo: 'https://i.pravatar.cc/80?img=5', isHost: false },
+  { id: 'fake_4', name: 'Diego Lima', photo: 'https://i.pravatar.cc/80?img=7', isHost: false },
+  { id: 'fake_5', name: 'Eduarda Rocha', photo: 'https://i.pravatar.cc/80?img=9', isHost: false },
+  { id: 'fake_6', name: 'Felipe Nunes', photo: 'https://i.pravatar.cc/80?img=11', isHost: false },
+];
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -96,6 +106,24 @@ app.post('/api/rooms', (req, res) => {
   };
 
   res.json({ room: rooms[code] });
+});
+
+// ADICIONAR JOGADORES FICTÍCIOS À SALA (para testes)
+app.post('/api/rooms/:code/add-fake-players', (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  const room = rooms[req.params.code.toUpperCase()];
+  if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
+  if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
+
+  // Adiciona jogadores fictícios que ainda não estão na sala
+  for (const fp of FAKE_PLAYERS) {
+    if (!room.players.find(p => p.id === fp.id)) {
+      room.players.push({ ...fp });
+    }
+  }
+
+  io.to(req.params.code.toUpperCase()).emit('room-update', room);
+  res.json({ room });
 });
 
 // VER SALA
