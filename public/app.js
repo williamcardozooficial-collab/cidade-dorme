@@ -714,5 +714,17 @@ if (!isSpectator) renderRoom(room);
 }
 });
 socket.on('game-night', (data) => { showGame(data); });
+// ---- SALA FECHADA (so ficticios restaram) ----
+socket.on('sala-fechada', (data) => {
+  if (countdownInterval) clearInterval(countdownInterval);
+  pararAudio();
+  currentRoom = null;
+  isSpectator = false;
+  myStatus = 'alive';
+  alert(data.motivo || 'A sala foi encerrada.');
+  if (currentUser) showHome(currentUser);
+  else showLogin();
+});
+
 
 checkAuth();
