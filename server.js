@@ -20,7 +20,6 @@ function generateCode() {
   return code;
 }
 
-// Jogadores fictícios para testes
 const FAKE_PLAYERS = [
   { id: 'fake_1', name: 'Ana Silva', photo: 'https://i.pravatar.cc/80?img=1', isHost: false },
   { id: 'fake_2', name: 'Bruno Costa', photo: 'https://i.pravatar.cc/80?img=3', isHost: false },
@@ -54,25 +53,17 @@ passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/' }),
   (req, res) => res.redirect('/')
 );
-
-app.get('/auth/logout', (req, res) => {
-  req.logout(() => res.redirect('/'));
-});
+app.get('/auth/logout', (req, res) => { req.logout(() => res.redirect('/')); });
 
 app.get('/api/me', (req, res) => {
-  if (req.isAuthenticated()) {
-    res.json({ user: req.user });
-  } else {
-    res.json({ user: null });
-  }
+  if (req.isAuthenticated()) res.json({ user: req.user });
+  else res.json({ user: null });
 });
 
-// LISTAR SALAS ATIVAS
 app.get('/api/rooms', (req, res) => {
   const list = Object.values(rooms)
     .filter(r => r.status === 'waiting')
@@ -85,61 +76,44 @@ app.get('/api/rooms', (req, res) => {
   res.json({ rooms: list });
 });
 
-// CRIAR SALA
 app.post('/api/rooms', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
-
   let code;
   do { code = generateCode(); } while (rooms[code]);
-
   const userId = req.user.id;
   const userName = req.user.displayName || 'Jogador';
   const userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
-
   rooms[code] = {
-    code,
-    host: userId,
-    minPlayers: 5,
+    code, host: userId, minPlayers: 5,
     players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }],
-    status: 'waiting',
-    createdAt: Date.now()
+    status: 'waiting', createdAt: Date.now()
   };
-
   res.json({ room: rooms[code] });
 });
 
-// ADICIONAR JOGADORES FICTÍCIOS À SALA (para testes)
 app.post('/api/rooms/:code/add-fake-players', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = rooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
-
-  // Adiciona jogadores fictícios que ainda não estão na sala
   for (const fp of FAKE_PLAYERS) {
-    if (!room.players.find(p => p.id === fp.id)) {
-      room.players.push({ ...fp });
-    }
+    if (!room.players.find(p => p.id === fp.id)) room.players.push({ ...fp });
   }
-
   io.to(req.params.code.toUpperCase()).emit('room-update', room);
   res.json({ room });
 });
 
-// VER SALA
 app.get('/api/rooms/:code', (req, res) => {
   const room = rooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   res.json({ room });
 });
 
-// ENTRAR NA SALA
 app.post('/api/rooms/:code/join', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = rooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
-
   const userId = req.user.id;
   if (!room.players.find(p => p.id === userId)) {
     room.players.push({
@@ -149,20 +123,16 @@ app.post('/api/rooms/:code/join', (req, res) => {
       isHost: false
     });
   }
-
   io.to(req.params.code.toUpperCase()).emit('room-update', room);
   res.json({ room });
 });
 
-// SAIR DA SALA
 app.delete('/api/rooms/:code/leave', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = rooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
-
   const userId = req.user.id;
   room.players = room.players.filter(p => p.id !== userId);
-
   if (room.players.length === 0) {
     delete rooms[req.params.code.toUpperCase()];
   } else {
@@ -172,7 +142,6 @@ app.delete('/api/rooms/:code/leave', (req, res) => {
     }
     io.to(req.params.code.toUpperCase()).emit('room-update', room);
   }
-
   res.json({ ok: true });
 });
 
@@ -180,16 +149,45 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Mapeia socket.id -> { userId, roomCode }
+const socketUsers = {};
+
 io.on('connection', (socket) => {
   console.log('conectado:', socket.id);
 
-  socket.on('join-room', ({ code }) => {
+  socket.on('join-room', ({ code, userId }) => {
     socket.join(code);
+    socketUsers[socket.id] = { userId, roomCode: code };
     const room = rooms[code];
     if (room) socket.emit('room-update', room);
+    // Avisa outros da sala que este peer entrou (para iniciar WebRTC)
+    socket.to(code).emit('peer-joined', { socketId: socket.id, userId });
+  });
+
+  // ---- SINALIZACAO WebRTC ----
+  socket.on('webrtc-offer', ({ to, offer }) => {
+    io.to(to).emit('webrtc-offer', { from: socket.id, offer });
+  });
+
+  socket.on('webrtc-answer', ({ to, answer }) => {
+    io.to(to).emit('webrtc-answer', { from: socket.id, answer });
+  });
+
+  socket.on('webrtc-ice', ({ to, candidate }) => {
+    io.to(to).emit('webrtc-ice', { from: socket.id, candidate });
+  });
+
+  // Mute/unmute: avisa sala inteira
+  socket.on('mic-status', ({ code, userId, muted }) => {
+    socket.to(code).emit('mic-status', { userId, muted });
   });
 
   socket.on('disconnect', () => {
+    const info = socketUsers[socket.id];
+    if (info) {
+      socket.to(info.roomCode).emit('peer-left', { socketId: socket.id, userId: info.userId });
+      delete socketUsers[socket.id];
+    }
     console.log('desconectado:', socket.id);
   });
 });
