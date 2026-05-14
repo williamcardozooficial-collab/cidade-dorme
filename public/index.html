@@ -98,6 +98,43 @@
   </main>
 </div>
 
+<!-- JOGO - NOITE -->
+<div id="game-screen" class="screen">
+  <main class="game-main">
+    <!-- Fundo estrelado animado -->
+    <div class="game-stars"></div>
+
+    <div class="game-content">
+      <!-- Papel do jogador -->
+      <div id="game-role" class="game-role">...</div>
+      <p id="game-role-desc" class="game-role-desc"></p>
+
+      <!-- Countdown -->
+      <div class="countdown-wrap">
+        <div id="game-countdown" class="countdown-num">60s</div>
+        <div class="countdown-track">
+          <div id="countdown-bar" class="countdown-bar" style="width:100%"></div>
+        </div>
+      </div>
+
+      <!-- Lista de vitimas (so assassino ve) -->
+      <div id="vitimas-section" style="display:none">
+        <p class="vitimas-title">Escolha sua vítima:</p>
+        <div id="vitimas-list" class="vitimas-list"></div>
+      </div>
+
+      <!-- Resultado do assassinato -->
+      <div id="kill-result-box" class="kill-result-box" style="display:none">
+        <div id="kill-icon" class="kill-icon">☠️</div>
+        <div id="kill-msg" class="kill-msg"></div>
+        <div id="kill-sub" class="kill-sub"></div>
+      </div>
+
+      <p id="game-overlay-text" class="game-overlay-text"></p>
+    </div>
+  </main>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>
