@@ -2,6 +2,7 @@ const socket = io();
 let currentUser = null;
 let currentRoom = null;
 let countdownInterval = null;
+let myStatus = 'alive'; // 'alive' | 'dead'
 
 // ---- AUDIO / WebRTC ----
 let localStream = null;
@@ -35,6 +36,7 @@ function forceMute() {
 }
 
 function toggleMic() {
+  if (myStatus === 'dead') { alert('Voce esta eliminado e nao pode usar o microfone.'); return; }
   if (!localStream) {
     ativarMicrofone().then(() => {
       setTimeout(() => {
@@ -139,9 +141,11 @@ socket.on('mic-status', ({ userId, muted }) => {
 });
 
 // ---- TELAS ----
+const ALL_SCREENS = ['login-screen','home-screen','join-screen','room-screen','game-screen','vote-screen','result-screen'];
 function hideAll() {
-  ['login-screen','home-screen','join-screen','room-screen','game-screen'].forEach(id => {
-    document.getElementById(id).classList.remove('active');
+  ALL_SCREENS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
   });
 }
 
@@ -152,7 +156,7 @@ async function checkAuth() {
   else showLogin();
 }
 
-function showLogin()  { hideAll(); document.getElementById('login-screen').classList.add('active'); }
+function showLogin() { hideAll(); document.getElementById('login-screen').classList.add('active'); }
 
 function showHome(user) {
   hideAll(); document.getElementById('home-screen').classList.add('active');
@@ -162,6 +166,7 @@ function showHome(user) {
   document.getElementById('user-name').textContent = name.split(' ')[0];
   const avatar = document.getElementById('user-avatar');
   if (photo) { avatar.src = photo; avatar.style.display = 'block'; }
+  myStatus = 'alive';
 }
 
 function showJoin() {
@@ -184,7 +189,6 @@ function showGame(data) {
 
   const isAssassino = currentUser && data.assassinoId === currentUser.id;
 
-  // Papel do jogador
   const roleEl = document.getElementById('game-role');
   const roleDescEl = document.getElementById('game-role-desc');
   if (isAssassino) {
@@ -197,7 +201,6 @@ function showGame(data) {
     roleDescEl.textContent = 'A cidade dorme... O assassino está agindo.';
   }
 
-  // Lista de vítimas (só para o assassino)
   const vitimasSection = document.getElementById('vitimas-section');
   const vitimasList = document.getElementById('vitimas-list');
   if (isAssassino) {
@@ -216,31 +219,30 @@ function showGame(data) {
     vitimasSection.style.display = 'none';
   }
 
-  // Mensagem de resultado (escondida)
   document.getElementById('kill-result-box').style.display = 'none';
   document.getElementById('game-overlay-text').textContent = '';
 
-  // Inicia countdown
-  iniciarCountdown(data.segundos || 60);
+  iniciarCountdown('game-countdown', 'countdown-bar', data.segundos || 60);
 
-  // Fecha microfone de todos
   forceMute();
   const btnMic = document.getElementById('btn-mic');
   if (btnMic) { btnMic.disabled = true; btnMic.title = 'Microfone bloqueado durante a noite'; }
 }
 
-function iniciarCountdown(segundos) {
+function iniciarCountdown(elId, barId, segundos) {
   if (countdownInterval) clearInterval(countdownInterval);
   let restante = segundos;
-  const el = document.getElementById('game-countdown');
-  const bar = document.getElementById('countdown-bar');
+  const el = document.getElementById(elId);
+  const bar = barId ? document.getElementById(barId) : null;
 
   function tick() {
     if (restante < 0) { clearInterval(countdownInterval); return; }
-    el.textContent = restante + 's';
-    const pct = (restante / segundos) * 100;
-    bar.style.width = pct + '%';
-    bar.style.background = restante > 20 ? '#6060ff' : restante > 10 ? '#ffaa00' : '#ff4444';
+    if (el) el.textContent = restante + 's';
+    if (bar) {
+      const pct = (restante / segundos) * 100;
+      bar.style.width = pct + '%';
+      bar.style.background = restante > 20 ? '#6060ff' : restante > 10 ? '#ffaa00' : '#ff4444';
+    }
     restante--;
   }
   tick();
@@ -249,7 +251,6 @@ function iniciarCountdown(segundos) {
 
 async function escolherVitima(vitimaId) {
   if (!currentRoom) return;
-  // Desabilita todos os botoes para evitar duplo clique
   document.querySelectorAll('.btn-vitima').forEach(b => { b.disabled = true; b.classList.add('escolhida'); });
   const res = await fetch('/api/rooms/' + currentRoom.code + '/kill', {
     method: 'POST',
@@ -267,13 +268,14 @@ socket.on('kill-result', (data) => {
   const isAssassino = currentUser && data.assassinoId === currentUser.id;
   const isVitima = currentUser && data.vitima.id === currentUser.id;
 
-  // Para todos: mostra overlay na tela de jogo
+  if (isVitima) myStatus = 'dead';
+
   const box = document.getElementById('kill-result-box');
   const countdown = document.getElementById('game-countdown');
   const bar = document.getElementById('countdown-bar');
 
-  countdown.textContent = '0s';
-  bar.style.width = '0%';
+  if (countdown) countdown.textContent = '0s';
+  if (bar) bar.style.width = '0%';
 
   box.style.display = 'flex';
 
@@ -291,19 +293,168 @@ socket.on('kill-result', (data) => {
     sub.textContent = isAssassino ? 'Você escolheu sua vítima.' : isVitima ? 'Você foi eliminado!' : 'O assassino fez sua escolha.';
   }
 
-  // Destaca vítima escolhida (se for assassino)
   if (isAssassino) {
     document.querySelectorAll('.btn-vitima').forEach(b => {
       if (b.getAttribute('data-id') === data.vitima.id) b.classList.add('morta');
     });
   }
-
-  // Reabilita microfone após 3s
-  setTimeout(() => {
-    const btnMic = document.getElementById('btn-mic');
-    if (btnMic) { btnMic.disabled = false; btnMic.title = ''; }
-  }, 3000);
 });
+
+// ---- TELA DE VOTAÇÃO ----
+socket.on('vote-turn', (data) => {
+  hideAll();
+  const voteScreen = document.getElementById('vote-screen');
+  voteScreen.classList.add('active');
+
+  const isMyTurn = currentUser && data.votante.id === currentUser.id;
+  const isDead = myStatus === 'dead';
+
+  // Progresso
+  document.getElementById('vote-progress').textContent = 'Votando: ' + data.turnoAtual + ' / ' + data.totalVotantes;
+  document.getElementById('vote-votante-name').textContent = data.votante.name;
+  const votanteImg = document.getElementById('vote-votante-img');
+  if (data.votante.photo) {
+    votanteImg.src = data.votante.photo;
+    votanteImg.style.display = 'block';
+  } else {
+    votanteImg.style.display = 'none';
+  }
+
+  // Mensagem para quem está votando
+  const msgEl = document.getElementById('vote-message');
+  if (isMyTurn) {
+    msgEl.textContent = 'É SUA VEZ! Você é suspeito? Você viu alguma coisa? Vote em quem acha que é o assassino!';
+    msgEl.className = 'vote-message minha-vez';
+  } else {
+    msgEl.textContent = data.votante.name + ' está votando. Apenas o microfone dele está ativo.';
+    msgEl.className = 'vote-message';
+  }
+
+  // Microfone: só quem está votando pode falar
+  const btnMic = document.getElementById('btn-mic-vote');
+  if (isMyTurn && !isDead) {
+    if (btnMic) { btnMic.disabled = false; btnMic.title = ''; }
+  } else {
+    forceMute();
+    if (btnMic) { btnMic.disabled = true; btnMic.title = isDead ? 'Eliminado' : 'Aguarde sua vez'; }
+  }
+
+  // Botões de voto (só para quem está votando e está vivo)
+  const alvosDiv = document.getElementById('vote-alvos');
+  alvosDiv.innerHTML = '';
+  if (isMyTurn && !isDead) {
+    data.alvos.forEach(alvo => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-votar-alvo';
+      btn.setAttribute('data-id', alvo.id);
+      btn.innerHTML = (alvo.photo ? '<img src="' + alvo.photo + '" class="vitima-avatar">' : '<div class="vitima-avatar-placeholder">' + alvo.name.charAt(0) + '</div>') +
+        '<span>' + alvo.name + '</span>';
+      btn.addEventListener('click', () => votar(alvo.id));
+      alvosDiv.appendChild(btn);
+    });
+  } else {
+    alvosDiv.innerHTML = '<p class="aguardando-texto">' + (isDead ? 'Você foi eliminado. Apenas observe.' : 'Aguarde a vez de ' + data.votante.name + '...') + '</p>';
+  }
+
+  // Inicia countdown
+  iniciarCountdown('vote-countdown', 'vote-countdown-bar', data.segundos || 60);
+});
+
+socket.on('vote-cast', (data) => {
+  // Marca voto registrado
+  if (countdownInterval) clearInterval(countdownInterval);
+  const el = document.getElementById('vote-countdown');
+  if (el) el.textContent = '✓';
+  document.querySelectorAll('.btn-votar-alvo').forEach(b => {
+    b.disabled = true;
+    if (b.getAttribute('data-id') === data.alvoId) b.classList.add('votado');
+  });
+  const msgEl = document.getElementById('vote-message');
+  if (msgEl && currentUser && data.votanteId === currentUser.id) {
+    msgEl.textContent = data.forcado ? 'Tempo esgotado! Voto automático registrado.' : 'Voto registrado! Aguarde...';
+  }
+});
+
+socket.on('vote-result', (data) => {
+  if (countdownInterval) clearInterval(countdownInterval);
+  hideAll();
+  const resultScreen = document.getElementById('result-screen');
+  resultScreen.classList.add('active');
+
+  const iconEl = document.getElementById('result-icon');
+  const titleEl = document.getElementById('result-title');
+  const subEl = document.getElementById('result-sub');
+  const roleRevealEl = document.getElementById('result-role-reveal');
+
+  if (data.empate) {
+    iconEl.textContent = '🤝';
+    titleEl.textContent = 'EMPATE!';
+    subEl.textContent = 'Ninguém foi eliminado. A cidade volta a dormir...';
+    roleRevealEl.style.display = 'none';
+  } else {
+    const eraAssassino = data.era_assassino;
+    iconEl.textContent = eraAssassino ? '🎉' : '😢';
+    titleEl.textContent = data.eliminado.name + ' foi eliminado!';
+    subEl.textContent = eraAssassino ? 'A cidade venceu!' : 'Era um cidadão inocente... O assassino continua solto.';
+    roleRevealEl.style.display = 'block';
+    roleRevealEl.textContent = eraAssassino ? '🔪 ERA O ASSASSINO!' : '😇 ERA UM CIDADÃO';
+    roleRevealEl.className = 'role-reveal ' + (eraAssassino ? 'assassino' : 'cidadao');
+
+    // Se eu fui eliminado, atualizo meu status
+    if (currentUser && data.eliminado.id === currentUser.id) myStatus = 'dead';
+  }
+
+  forceMute();
+  const btnMicVote = document.getElementById('btn-mic-vote');
+  if (btnMicVote) btnMicVote.disabled = true;
+});
+
+socket.on('game-over', (data) => {
+  if (countdownInterval) clearInterval(countdownInterval);
+  hideAll();
+  const resultScreen = document.getElementById('result-screen');
+  resultScreen.classList.add('active');
+
+  const iconEl = document.getElementById('result-icon');
+  const titleEl = document.getElementById('result-title');
+  const subEl = document.getElementById('result-sub');
+  const roleRevealEl = document.getElementById('result-role-reveal');
+
+  if (data.vencedor === 'cidade') {
+    iconEl.textContent = '🏆';
+    titleEl.textContent = 'CIDADE VENCEU!';
+    subEl.textContent = 'O assassino foi descoberto e eliminado. Parabéns cidadãos!';
+  } else {
+    iconEl.textContent = '💀';
+    titleEl.textContent = 'ASSASSINO VENCEU!';
+    subEl.textContent = 'O assassino eliminou jogadores demais. A cidade perdeu!';
+  }
+  roleRevealEl.style.display = 'none';
+
+  // Botão de jogar novamente (só host)
+  const btnReplay = document.getElementById('btn-replay');
+  if (btnReplay) {
+    const isHost = currentUser && currentRoom && currentRoom.host === currentUser.id;
+    btnReplay.style.display = isHost ? 'block' : 'none';
+  }
+  myStatus = 'alive';
+  forceMute();
+});
+
+async function votar(alvoId) {
+  if (!currentRoom) return;
+  document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = true; });
+  const res = await fetch('/api/rooms/' + currentRoom.code + '/vote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alvoId })
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert(data.error);
+    document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = false; });
+  }
+}
 
 // ---- SALA ----
 async function carregarSalas() {
@@ -410,6 +561,9 @@ document.getElementById('btn-sair-sala').addEventListener('click', async () => {
 
 document.getElementById('btn-mic').addEventListener('click', () => toggleMic());
 
+const btnMicVote = document.getElementById('btn-mic-vote');
+if (btnMicVote) btnMicVote.addEventListener('click', () => toggleMic());
+
 document.getElementById('btn-add-fake').addEventListener('click', async () => {
   if (!currentRoom) return;
   const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
@@ -426,6 +580,15 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   if (data.error) { alert(data.error); }
 });
 
+const btnReplay = document.getElementById('btn-replay');
+if (btnReplay) {
+  btnReplay.addEventListener('click', async () => {
+    if (!currentRoom) return;
+    myStatus = 'alive';
+    showRoom(currentRoom);
+  });
+}
+
 socket.on('room-update', (room) => {
   if (currentRoom && room.code === currentRoom.code) {
     currentRoom = room;
@@ -433,7 +596,6 @@ socket.on('room-update', (room) => {
   }
 });
 
-// Servidor emite game-night para todos na sala
 socket.on('game-night', (data) => {
   showGame(data);
 });
