@@ -16,7 +16,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0ff;
 .btn-google:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
 
 /* HEADER */
-#home-screen, #join-screen, #room-screen, #vote-screen { flex-direction: column; background: #0d0d1f; }
+#home-screen, #join-screen, #room-screen, #vote-screen, #spectator-screen { flex-direction: column; background: #0d0d1f; }
 header { display: flex; justify-content: space-between; align-items: center; padding: 16px 32px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08); }
 .header-left { font-size: 1.3rem; color: #c0c0ff; }
 .header-right { display: flex; align-items: center; gap: 12px; }
@@ -58,8 +58,11 @@ header { display: flex; justify-content: space-between; align-items: center; pad
 .sala-info { display: flex; flex-direction: column; gap: 4px; }
 .sala-codigo { font-size: 1.3rem; font-weight: 900; color: #c0c0ff; letter-spacing: 4px; }
 .sala-host { font-size: 0.85rem; color: #7070aa; }
-.sala-right { display: flex; align-items: center; gap: 16px; }
+.sala-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .sala-players { font-size: 0.9rem; color: #9090cc; }
+.sala-spectators { font-size: 0.85rem; color: #7070aa; }
+.sala-status-aguardando { font-size: 0.8rem; background: rgba(255,200,50,0.1); color: #ffd700; border: 1px solid rgba(255,200,50,0.25); padding: 3px 10px; border-radius: 20px; }
+.sala-status-jogo { font-size: 0.8rem; background: rgba(255,80,80,0.12); color: #ff8080; border: 1px solid rgba(255,80,80,0.3); padding: 3px 10px; border-radius: 20px; }
 .btn-entrar-sala { background: linear-gradient(135deg, #6060ff, #9060ff); color: white; border: none; border-radius: 10px; padding: 10px 20px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
 .btn-entrar-sala:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(100,100,255,0.4); }
 
@@ -69,8 +72,9 @@ header { display: flex; justify-content: space-between; align-items: center; pad
 .room-code-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 20px 40px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .room-code-label { font-size: 0.85rem; color: #8080cc; text-transform: uppercase; letter-spacing: 2px; }
 .room-code-value { font-size: 2.5rem; font-weight: 900; color: #c0c0ff; letter-spacing: 8px; }
-.room-info { display: flex; gap: 24px; color: #9090bb; font-size: 0.95rem; }
+.room-info { display: flex; gap: 24px; color: #9090bb; font-size: 0.95rem; flex-wrap: wrap; justify-content: center; align-items: center; }
 .room-info strong { color: #e0e0ff; }
+.spectator-count-badge { font-size: 0.85rem; color: #9090aa; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); padding: 3px 12px; border-radius: 20px; }
 .players-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; width: 100%; max-width: 800px; }
 .player-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 12px; }
 .player-avatar-img { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
@@ -147,3 +151,12 @@ header { display: flex; justify-content: space-between; align-items: center; pad
 .role-reveal { display: inline-block; font-size: 1.4rem; font-weight: 900; padding: 14px 32px; border-radius: 20px; margin-top: 8px; letter-spacing: 1px; animation: fadeInDown 0.5s ease; }
 .role-reveal.assassino { background: rgba(220,40,40,0.2); color: #ff6060; border: 2px solid rgba(220,40,40,0.5); text-shadow: 0 0 20px rgba(255,60,60,0.5); }
 .role-reveal.cidadao { background: rgba(60,60,180,0.2); color: #a0a0ff; border: 2px solid rgba(100,100,255,0.4); }
+
+/* ESPECTADOR */
+#spectator-screen { flex-direction: column; background: #06060f; }
+.spectator-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; gap: 24px; }
+.spectator-content { display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; max-width: 480px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 40px; }
+.spectator-eye { font-size: 4rem; opacity: 0.6; animation: float 3s ease-in-out infinite; }
+.spectator-status { font-size: 1.4rem; font-weight: 700; color: #c0c0ff; background: rgba(100,100,255,0.1); border: 1px solid rgba(100,100,255,0.25); border-radius: 14px; padding: 14px 24px; }
+.spectator-info { color: #7070aa; font-size: 0.95rem; line-height: 1.8; }
+.spectator-counts { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
