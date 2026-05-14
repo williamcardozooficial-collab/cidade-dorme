@@ -29,6 +29,22 @@ const FAKE_PLAYERS = [
 { id: 'fake_6', name: 'Felipe Nunes', photo: 'https://i.pravatar.cc/80?img=11', isHost: false },
 ];
 
+// Verifica se so restam jogadores ficticios na sala (waiting ou durante jogo)
+function apenasJogadoresFicticios(room) {
+const jogadoresReais = room.players.filter(p => !p.id.startsWith('fake_'));
+return jogadoresReais.length === 0;
+}
+
+// Fecha a sala e notifica todos
+function fecharSala(roomCode, motivo) {
+const room = rooms[roomCode];
+if (!room) return;
+clearTimeout(gameTimers[roomCode]);
+clearTimeout(gameTimers[roomCode + '_vote']);
+io.to(roomCode).emit('sala-fechada', { motivo: motivo || 'Sala encerrada.' });
+delete rooms[roomCode];
+}
+
 // Adiciona evento ao feed de status da sala (max 5)
 function addFeed(room, msg, tipo) {
 if (!room.feed) room.feed = [];
@@ -47,7 +63,21 @@ io.to(roomCode).emit('spectator-count', { count: room.spectators || 0 });
 function iniciarNovaRodada(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
+
+// Se so restam ficticios, fecha a sala
+if (apenasJogadoresFicticios(room)) {
+fecharSala(roomCode, 'Todos os jogadores reais saíram. Sala encerrada.');
+return;
+}
+
 const vivos = room.players.filter(p => !room.mortos.includes(p.id));
+
+// Se vivos so tem ficticios, encerra o jogo
+const vivosReais = vivos.filter(p => !p.id.startsWith('fake_'));
+if (vivosReais.length === 0) {
+fecharSala(roomCode, 'Todos os jogadores reais foram eliminados. Sala encerrada.');
+return;
+}
 
 // Apenas 2 restam: revela cidadao depois assassino vencedor
 if (vivos.length <= 2) {
@@ -93,6 +123,13 @@ setTimeout(() => iniciarVotacao(roomCode), 5000);
 function iniciarVotacao(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
+
+// Se so restam ficticios, fecha a sala
+if (apenasJogadoresFicticios(room)) {
+fecharSala(roomCode, 'Todos os jogadores reais saíram. Sala encerrada.');
+return;
+}
+
 const vivos = room.players.filter(p => !room.mortos.includes(p.id));
 if (vivos.length === 0) return;
 room.status = 'voting'; room.votos = {};
@@ -103,6 +140,13 @@ iniciarTurnoVotacao(roomCode);
 function iniciarTurnoVotacao(roomCode) {
 const room = rooms[roomCode];
 if (!room || room.status !== 'voting') return;
+
+// Se so restam ficticios, fecha a sala
+if (apenasJogadoresFicticios(room)) {
+fecharSala(roomCode, 'Todos os jogadores reais saíram. Sala encerrada.');
+return;
+}
+
 const idx = room.votacaoIndex;
 if (idx >= room.votacaoFila.length) { finalizarVotacao(roomCode); return; }
 const votanteId = room.votacaoFila[idx];
@@ -135,6 +179,13 @@ function finalizarVotacao(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
 if (gameTimers[roomCode + '_vote']) clearTimeout(gameTimers[roomCode + '_vote']);
+
+// Se so restam ficticios, fecha a sala
+if (apenasJogadoresFicticios(room)) {
+fecharSala(roomCode, 'Todos os jogadores reais saíram. Sala encerrada.');
+return;
+}
+
 const contagem = {};
 Object.values(room.votos).forEach(alvoId => { contagem[alvoId] = (contagem[alvoId] || 0) + 1; });
 if (Object.keys(contagem).length === 0) {
@@ -170,12 +221,7 @@ io.to(roomCode).emit('game-over', { vencedor: 'cidade', mortos: room.mortos });
 room.status = 'ended';
 }, 5000);
 } else {
-const vivosRestantes = room.players.filter(p => !room.mortos.includes(p.id));
-if (vivosRestantes.length <= 2) {
 setTimeout(() => iniciarNovaRodada(roomCode), 5000);
-} else {
-setTimeout(() => iniciarNovaRodada(roomCode), 5000);
-}
 }
 }
 
@@ -192,7 +238,6 @@ app.get('/auth/google/callback', passport.authenticate('google', { failureRedire
 app.get('/auth/logout', (req, res) => { req.logout(() => res.redirect('/')); });
 app.get('/api/me', (req, res) => { if (req.isAuthenticated()) res.json({ user: req.user }); else res.json({ user: null }); });
 app.get('/api/rooms', (req, res) => {
-// Mostra todas as salas (waiting ou em jogo) para entrar como espectador
 const list = Object.values(rooms).map(r => ({
 code: r.code,
 players: r.players.length,
@@ -225,9 +270,7 @@ if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticad
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
-// Se sala em jogo ou cheia (>=MAX_PLAYERS), entra como espectador
 if (room.status !== 'waiting' || room.players.length >= MAX_PLAYERS) {
-// Espectador — apenas retorna info da sala com flag
 return res.json({ room, asSpectator: true });
 }
 if (!room.players.find(p => p.id === userId)) {
@@ -242,12 +285,20 @@ const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
 room.players = room.players.filter(p => p.id !== userId);
-// Nao fecha sala ao sair — apenas remove o jogador
+// Verifica se so sobraram ficticios apos saida do jogador real
+if (apenasJogadoresFicticios(room)) {
+fecharSala(req.params.code.toUpperCase(), 'Todos os jogadores reais saíram. Sala encerrada.');
+return res.json({ ok: true });
+}
 if (room.players.length === 0 && room.status === 'waiting') {
 clearTimeout(gameTimers[req.params.code.toUpperCase()]);
 delete rooms[req.params.code.toUpperCase()];
 } else {
-if (room.host === userId && room.players.length > 0) { room.host = room.players[0].id; room.players[0].isHost = true; }
+if (room.host === userId && room.players.length > 0) {
+// Novo host: preferir jogador real
+const novoHost = room.players.find(p => !p.id.startsWith('fake_')) || room.players[0];
+room.host = novoHost.id; novoHost.isHost = true;
+}
 io.to(req.params.code.toUpperCase()).emit('room-update', room);
 }
 res.json({ ok: true });
@@ -329,7 +380,6 @@ emitSpectatorCount(code);
 }
 socket.emit('room-update', room);
 socket.emit('spectator-count', { count: room.spectators || 0 });
-// Se jogo ja em andamento, manda estado atual para espectador
 if (room.status !== 'waiting') {
 socket.emit('spectator-mode', { status: room.status, feed: room.feed || [], spectators: room.spectators || 0 });
 }
