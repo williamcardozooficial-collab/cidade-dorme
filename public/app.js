@@ -27,11 +27,24 @@ async function ativarMicrofone() {
   }
 }
 
+async function abrirMicAutomatico() {
+  if (myStatus === 'dead') return;
+  if (!localStream) {
+    await ativarMicrofone();
+  }
+  if (!localStream) return;
+  micMuted = false;
+  localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+  atualizarBotaoMicVote();
+  if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: false });
+}
+
 function forceMute() {
   if (!localStream) return;
   micMuted = true;
   localStream.getAudioTracks().forEach(t => { t.enabled = false; });
   atualizarBotaoMic();
+  atualizarBotaoMicVote();
   if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: true });
 }
 
@@ -43,6 +56,7 @@ function toggleMic() {
         micMuted = false;
         localStream.getAudioTracks().forEach(t => { t.enabled = true; });
         atualizarBotaoMic();
+        atualizarBotaoMicVote();
         if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: false });
       }, 300);
     });
@@ -51,11 +65,26 @@ function toggleMic() {
   micMuted = !micMuted;
   localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
   atualizarBotaoMic();
+  atualizarBotaoMicVote();
   if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: micMuted });
 }
 
 function atualizarBotaoMic() {
   const btn = document.getElementById('btn-mic');
+  if (!btn) return;
+  if (micMuted) {
+    btn.textContent = '🔇 Microfone';
+    btn.classList.remove('mic-on');
+    btn.classList.add('mic-off');
+  } else {
+    btn.textContent = '🎙️ Microfone';
+    btn.classList.remove('mic-off');
+    btn.classList.add('mic-on');
+  }
+}
+
+function atualizarBotaoMicVote() {
+  const btn = document.getElementById('btn-mic-vote');
   if (!btn) return;
   if (micMuted) {
     btn.textContent = '🔇 Microfone';
@@ -109,6 +138,7 @@ function pararAudio() {
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   micMuted = true;
   atualizarBotaoMic();
+  atualizarBotaoMicVote();
 }
 
 // ---- SOCKET WebRTC ----
@@ -242,6 +272,7 @@ function showGame(data) {
 
   iniciarCountdown('game-countdown', 'countdown-bar', data.segundos || 60);
 
+  // Mic bloqueado durante a noite
   forceMute();
   const btnMic = document.getElementById('btn-mic');
   if (btnMic) { btnMic.disabled = true; btnMic.title = 'Microfone bloqueado durante a noite'; }
@@ -309,7 +340,7 @@ socket.on('kill-result', (data) => {
 });
 
 // ---- TELA DE VOTAÇÃO ----
-socket.on('vote-turn', (data) => {
+socket.on('vote-turn', async (data) => {
   hideAll();
   document.getElementById('vote-screen').classList.add('active');
   if (data.feed) renderFeed(data.feed);
@@ -334,8 +365,11 @@ socket.on('vote-turn', (data) => {
 
   const btnMic = document.getElementById('btn-mic-vote');
   if (isMyTurn && !isDead) {
+    // Abre microfone automaticamente para quem vai votar
     if (btnMic) { btnMic.disabled = false; btnMic.title = ''; }
+    await abrirMicAutomatico();
   } else {
+    // Fecha mic para quem não está votando ou está morto
     forceMute();
     if (btnMic) { btnMic.disabled = true; btnMic.title = isDead ? 'Eliminado' : 'Aguarde sua vez'; }
   }
@@ -371,6 +405,8 @@ socket.on('vote-cast', (data) => {
   if (msgEl && currentUser && data.votanteId === currentUser.id) {
     msgEl.textContent = data.forcado ? 'Tempo esgotado! Voto automático registrado.' : 'Voto registrado! Aguarde...';
   }
+  // Fecha mic após votar
+  forceMute();
 });
 
 socket.on('vote-result', (data) => {
@@ -400,11 +436,8 @@ socket.on('vote-result', (data) => {
     if (currentUser && data.eliminado.id === currentUser.id) myStatus = 'dead';
   }
   forceMute();
-  const btnMicVote = document.getElementById('btn-mic-vote');
-  if (btnMicVote) btnMicVote.disabled = true;
 });
 
-// ---- GAME OVER NORMAL ----
 socket.on('game-over', (data) => {
   if (countdownInterval) clearInterval(countdownInterval);
   hideAll();
@@ -425,13 +458,11 @@ socket.on('game-over', (data) => {
   forceMute();
 });
 
-// ---- GAME OVER COM REVEAL (2 jogadores restam) ----
 socket.on('game-over-reveal', (data) => {
   if (countdownInterval) clearInterval(countdownInterval);
   hideAll();
   document.getElementById('result-screen').classList.add('active');
 
-  // Fase 1: mostra cidadao inocente
   document.getElementById('result-icon').textContent = '😇';
   document.getElementById('result-title').textContent = data.cidadao.name + ' era inocente!';
   document.getElementById('result-sub').textContent = 'Era um cidadão... não conseguiu descobrir o assassino.';
@@ -440,14 +471,12 @@ socket.on('game-over-reveal', (data) => {
   roleRevealEl.textContent = '😇 ERA UM CIDADÃO';
   roleRevealEl.className = 'role-reveal cidadao';
 
-  // Fase 2: após 3s revela assassino como vencedor
   setTimeout(() => {
     document.getElementById('result-icon').textContent = '💀';
     document.getElementById('result-title').textContent = data.assassino.name + ' era o ASSASSINO!';
     document.getElementById('result-sub').textContent = 'O assassino eliminou todos os cidadãos. A cidade perdeu!';
     roleRevealEl.textContent = '🔪 ERA O ASSASSINO — VENCEDOR!';
     roleRevealEl.className = 'role-reveal assassino';
-
     const btnReplay = document.getElementById('btn-replay');
     if (btnReplay) {
       btnReplay.style.display = (currentUser && currentRoom && currentRoom.host === currentUser.id) ? 'block' : 'none';
