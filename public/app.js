@@ -140,6 +140,23 @@ socket.on('mic-status', ({ userId, muted }) => {
   }
 });
 
+// ---- FEED DE STATUS ----
+function renderFeed(feed) {
+  const el = document.getElementById('game-feed');
+  if (!el || !feed) return;
+  el.innerHTML = '';
+  feed.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'feed-item feed-' + (item.tipo || 'sistema');
+    div.textContent = item.msg;
+    el.appendChild(div);
+  });
+}
+
+socket.on('feed-update', (feed) => {
+  renderFeed(feed);
+});
+
 // ---- TELAS ----
 const ALL_SCREENS = ['login-screen','home-screen','join-screen','room-screen','game-screen','vote-screen','result-screen'];
 function hideAll() {
@@ -186,6 +203,7 @@ function showRoom(room) {
 function showGame(data) {
   hideAll();
   document.getElementById('game-screen').classList.add('active');
+  if (data.feed) renderFeed(data.feed);
 
   const isAssassino = currentUser && data.assassinoId === currentUser.id;
 
@@ -234,7 +252,6 @@ function iniciarCountdown(elId, barId, segundos) {
   let restante = segundos;
   const el = document.getElementById(elId);
   const bar = barId ? document.getElementById(barId) : null;
-
   function tick() {
     if (restante < 0) { clearInterval(countdownInterval); return; }
     if (el) el.textContent = restante + 's';
@@ -253,8 +270,7 @@ async function escolherVitima(vitimaId) {
   if (!currentRoom) return;
   document.querySelectorAll('.btn-vitima').forEach(b => { b.disabled = true; b.classList.add('escolhida'); });
   const res = await fetch('/api/rooms/' + currentRoom.code + '/kill', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ vitimaId })
   });
   const data = await res.json();
@@ -264,25 +280,18 @@ async function escolherVitima(vitimaId) {
 // ---- RESULTADO DO ASSASSINATO ----
 socket.on('kill-result', (data) => {
   if (countdownInterval) clearInterval(countdownInterval);
-
   const isAssassino = currentUser && data.assassinoId === currentUser.id;
   const isVitima = currentUser && data.vitima.id === currentUser.id;
-
   if (isVitima) myStatus = 'dead';
-
   const box = document.getElementById('kill-result-box');
   const countdown = document.getElementById('game-countdown');
   const bar = document.getElementById('countdown-bar');
-
   if (countdown) countdown.textContent = '0s';
   if (bar) bar.style.width = '0%';
-
   box.style.display = 'flex';
-
   const icon = document.getElementById('kill-icon');
   const msg = document.getElementById('kill-msg');
   const sub = document.getElementById('kill-sub');
-
   if (data.forcado) {
     icon.textContent = '☠️';
     msg.textContent = data.vitima.name + ' foi assassinado!';
@@ -292,7 +301,6 @@ socket.on('kill-result', (data) => {
     msg.textContent = data.vitima.name + ' foi assassinado!';
     sub.textContent = isAssassino ? 'Você escolheu sua vítima.' : isVitima ? 'Você foi eliminado!' : 'O assassino fez sua escolha.';
   }
-
   if (isAssassino) {
     document.querySelectorAll('.btn-vitima').forEach(b => {
       if (b.getAttribute('data-id') === data.vitima.id) b.classList.add('morta');
@@ -303,24 +311,18 @@ socket.on('kill-result', (data) => {
 // ---- TELA DE VOTAÇÃO ----
 socket.on('vote-turn', (data) => {
   hideAll();
-  const voteScreen = document.getElementById('vote-screen');
-  voteScreen.classList.add('active');
+  document.getElementById('vote-screen').classList.add('active');
+  if (data.feed) renderFeed(data.feed);
 
   const isMyTurn = currentUser && data.votante.id === currentUser.id;
   const isDead = myStatus === 'dead';
 
-  // Progresso
   document.getElementById('vote-progress').textContent = 'Votando: ' + data.turnoAtual + ' / ' + data.totalVotantes;
   document.getElementById('vote-votante-name').textContent = data.votante.name;
   const votanteImg = document.getElementById('vote-votante-img');
-  if (data.votante.photo) {
-    votanteImg.src = data.votante.photo;
-    votanteImg.style.display = 'block';
-  } else {
-    votanteImg.style.display = 'none';
-  }
+  if (data.votante.photo) { votanteImg.src = data.votante.photo; votanteImg.style.display = 'block'; }
+  else { votanteImg.style.display = 'none'; }
 
-  // Mensagem para quem está votando
   const msgEl = document.getElementById('vote-message');
   if (isMyTurn) {
     msgEl.textContent = 'É SUA VEZ! Você é suspeito? Você viu alguma coisa? Vote em quem acha que é o assassino!';
@@ -330,7 +332,6 @@ socket.on('vote-turn', (data) => {
     msgEl.className = 'vote-message';
   }
 
-  // Microfone: só quem está votando pode falar
   const btnMic = document.getElementById('btn-mic-vote');
   if (isMyTurn && !isDead) {
     if (btnMic) { btnMic.disabled = false; btnMic.title = ''; }
@@ -339,7 +340,6 @@ socket.on('vote-turn', (data) => {
     if (btnMic) { btnMic.disabled = true; btnMic.title = isDead ? 'Eliminado' : 'Aguarde sua vez'; }
   }
 
-  // Botões de voto (só para quem está votando e está vivo)
   const alvosDiv = document.getElementById('vote-alvos');
   alvosDiv.innerHTML = '';
   if (isMyTurn && !isDead) {
@@ -356,12 +356,10 @@ socket.on('vote-turn', (data) => {
     alvosDiv.innerHTML = '<p class="aguardando-texto">' + (isDead ? 'Você foi eliminado. Apenas observe.' : 'Aguarde a vez de ' + data.votante.name + '...') + '</p>';
   }
 
-  // Inicia countdown
   iniciarCountdown('vote-countdown', 'vote-countdown-bar', data.segundos || 60);
 });
 
 socket.on('vote-cast', (data) => {
-  // Marca voto registrado
   if (countdownInterval) clearInterval(countdownInterval);
   const el = document.getElementById('vote-countdown');
   if (el) el.textContent = '✓';
@@ -377,9 +375,9 @@ socket.on('vote-cast', (data) => {
 
 socket.on('vote-result', (data) => {
   if (countdownInterval) clearInterval(countdownInterval);
+  if (data.feed) renderFeed(data.feed);
   hideAll();
-  const resultScreen = document.getElementById('result-screen');
-  resultScreen.classList.add('active');
+  document.getElementById('result-screen').classList.add('active');
 
   const iconEl = document.getElementById('result-icon');
   const titleEl = document.getElementById('result-title');
@@ -399,44 +397,63 @@ socket.on('vote-result', (data) => {
     roleRevealEl.style.display = 'block';
     roleRevealEl.textContent = eraAssassino ? '🔪 ERA O ASSASSINO!' : '😇 ERA UM CIDADÃO';
     roleRevealEl.className = 'role-reveal ' + (eraAssassino ? 'assassino' : 'cidadao');
-
-    // Se eu fui eliminado, atualizo meu status
     if (currentUser && data.eliminado.id === currentUser.id) myStatus = 'dead';
   }
-
   forceMute();
   const btnMicVote = document.getElementById('btn-mic-vote');
   if (btnMicVote) btnMicVote.disabled = true;
 });
 
+// ---- GAME OVER NORMAL ----
 socket.on('game-over', (data) => {
   if (countdownInterval) clearInterval(countdownInterval);
   hideAll();
-  const resultScreen = document.getElementById('result-screen');
-  resultScreen.classList.add('active');
+  document.getElementById('result-screen').classList.add('active');
 
-  const iconEl = document.getElementById('result-icon');
-  const titleEl = document.getElementById('result-title');
-  const subEl = document.getElementById('result-sub');
-  const roleRevealEl = document.getElementById('result-role-reveal');
+  document.getElementById('result-icon').textContent = data.vencedor === 'cidade' ? '🏆' : '💀';
+  document.getElementById('result-title').textContent = data.vencedor === 'cidade' ? 'CIDADE VENCEU!' : 'ASSASSINO VENCEU!';
+  document.getElementById('result-sub').textContent = data.vencedor === 'cidade'
+    ? 'O assassino foi descoberto e eliminado. Parabéns cidadãos!'
+    : 'O assassino eliminou jogadores demais. A cidade perdeu!';
+  document.getElementById('result-role-reveal').style.display = 'none';
 
-  if (data.vencedor === 'cidade') {
-    iconEl.textContent = '🏆';
-    titleEl.textContent = 'CIDADE VENCEU!';
-    subEl.textContent = 'O assassino foi descoberto e eliminado. Parabéns cidadãos!';
-  } else {
-    iconEl.textContent = '💀';
-    titleEl.textContent = 'ASSASSINO VENCEU!';
-    subEl.textContent = 'O assassino eliminou jogadores demais. A cidade perdeu!';
-  }
-  roleRevealEl.style.display = 'none';
-
-  // Botão de jogar novamente (só host)
   const btnReplay = document.getElementById('btn-replay');
   if (btnReplay) {
-    const isHost = currentUser && currentRoom && currentRoom.host === currentUser.id;
-    btnReplay.style.display = isHost ? 'block' : 'none';
+    btnReplay.style.display = (currentUser && currentRoom && currentRoom.host === currentUser.id) ? 'block' : 'none';
   }
+  myStatus = 'alive';
+  forceMute();
+});
+
+// ---- GAME OVER COM REVEAL (2 jogadores restam) ----
+socket.on('game-over-reveal', (data) => {
+  if (countdownInterval) clearInterval(countdownInterval);
+  hideAll();
+  document.getElementById('result-screen').classList.add('active');
+
+  // Fase 1: mostra cidadao inocente
+  document.getElementById('result-icon').textContent = '😇';
+  document.getElementById('result-title').textContent = data.cidadao.name + ' era inocente!';
+  document.getElementById('result-sub').textContent = 'Era um cidadão... não conseguiu descobrir o assassino.';
+  const roleRevealEl = document.getElementById('result-role-reveal');
+  roleRevealEl.style.display = 'block';
+  roleRevealEl.textContent = '😇 ERA UM CIDADÃO';
+  roleRevealEl.className = 'role-reveal cidadao';
+
+  // Fase 2: após 3s revela assassino como vencedor
+  setTimeout(() => {
+    document.getElementById('result-icon').textContent = '💀';
+    document.getElementById('result-title').textContent = data.assassino.name + ' era o ASSASSINO!';
+    document.getElementById('result-sub').textContent = 'O assassino eliminou todos os cidadãos. A cidade perdeu!';
+    roleRevealEl.textContent = '🔪 ERA O ASSASSINO — VENCEDOR!';
+    roleRevealEl.className = 'role-reveal assassino';
+
+    const btnReplay = document.getElementById('btn-replay');
+    if (btnReplay) {
+      btnReplay.style.display = (currentUser && currentRoom && currentRoom.host === currentUser.id) ? 'block' : 'none';
+    }
+  }, 3000);
+
   myStatus = 'alive';
   forceMute();
 });
@@ -445,15 +462,11 @@ async function votar(alvoId) {
   if (!currentRoom) return;
   document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = true; });
   const res = await fetch('/api/rooms/' + currentRoom.code + '/vote', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ alvoId })
   });
   const data = await res.json();
-  if (data.error) {
-    alert(data.error);
-    document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = false; });
-  }
+  if (data.error) { alert(data.error); document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = false; }); }
 }
 
 // ---- SALA ----
@@ -464,32 +477,22 @@ async function carregarSalas() {
     const res = await fetch('/api/rooms');
     const data = await res.json();
     const salas = data.rooms;
-    if (!salas || salas.length === 0) {
-      lista.innerHTML = '<div class="salas-vazio">Nenhuma sala aberta no momento.<br>Que tal criar uma?</div>';
-      return;
-    }
+    if (!salas || salas.length === 0) { lista.innerHTML = '<div class="salas-vazio">Nenhuma sala aberta no momento.<br>Que tal criar uma?</div>'; return; }
     lista.innerHTML = '';
     salas.forEach(sala => {
       const div = document.createElement('div');
       div.className = 'sala-item';
-      div.innerHTML =
-        '<div class="sala-info"><span class="sala-codigo">' + sala.code + '</span><span class="sala-host">Host: ' + sala.host + '</span></div>' +
+      div.innerHTML = '<div class="sala-info"><span class="sala-codigo">' + sala.code + '</span><span class="sala-host">Host: ' + sala.host + '</span></div>' +
         '<div class="sala-right"><span class="sala-players">👥 ' + sala.players + ' jogadores</span>' +
         '<button class="btn-entrar-sala" data-code="' + sala.code + '">Entrar</button></div>';
       lista.appendChild(div);
     });
-    lista.querySelectorAll('.btn-entrar-sala').forEach(btn => {
-      btn.addEventListener('click', () => entrarNaSala(btn.dataset.code));
-    });
-  } catch (e) {
-    lista.innerHTML = '<div class="salas-vazio">Erro ao carregar salas.</div>';
-  }
+    lista.querySelectorAll('.btn-entrar-sala').forEach(btn => { btn.addEventListener('click', () => entrarNaSala(btn.dataset.code)); });
+  } catch (e) { lista.innerHTML = '<div class="salas-vazio">Erro ao carregar salas.</div>'; }
 }
 
 async function entrarNaSala(code) {
-  const res = await fetch('/api/rooms/' + code.toUpperCase() + '/join', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }
-  });
+  const res = await fetch('/api/rooms/' + code.toUpperCase() + '/join', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
   showRoom(data.room);
@@ -499,7 +502,6 @@ function renderRoom(room) {
   document.getElementById('room-code').textContent = room.code;
   document.getElementById('room-players-count').textContent = room.players.length;
   document.getElementById('room-min').textContent = room.minPlayers;
-
   const list = document.getElementById('players-list');
   list.innerHTML = '';
   room.players.forEach(p => {
@@ -513,7 +515,6 @@ function renderRoom(room) {
       : '<div class="player-avatar-placeholder">' + initials + '</div><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>' + micIcon + '</div>';
     list.appendChild(div);
   });
-
   const startBtn = document.getElementById('btn-start');
   const fakeBtn = document.getElementById('btn-add-fake');
   const isHost = currentUser && room.host === currentUser.id;
@@ -536,11 +537,9 @@ document.getElementById('card-criar').addEventListener('click', async () => {
   if (data.error) { alert(data.error); return; }
   showRoom(data.room);
 });
-
 document.getElementById('card-entrar').addEventListener('click', () => showJoin());
 document.getElementById('btn-voltar-join').addEventListener('click', () => showHome(currentUser));
 document.getElementById('btn-atualizar').addEventListener('click', () => carregarSalas());
-
 document.getElementById('btn-buscar-codigo').addEventListener('click', () => {
   const codigo = document.getElementById('input-codigo').value.trim().toUpperCase();
   if (!codigo) { alert('Digite o codigo da sala'); return; }
@@ -550,7 +549,6 @@ document.getElementById('input-codigo').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-buscar-codigo').click();
   document.getElementById('input-codigo').value = document.getElementById('input-codigo').value.toUpperCase();
 });
-
 document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   if (!currentRoom) return;
   pararAudio();
@@ -558,12 +556,9 @@ document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   currentRoom = null;
   showHome(currentUser);
 });
-
 document.getElementById('btn-mic').addEventListener('click', () => toggleMic());
-
 const btnMicVote = document.getElementById('btn-mic-vote');
 if (btnMicVote) btnMicVote.addEventListener('click', () => toggleMic());
-
 document.getElementById('btn-add-fake').addEventListener('click', async () => {
   if (!currentRoom) return;
   const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
@@ -572,32 +567,23 @@ document.getElementById('btn-add-fake').addEventListener('click', async () => {
   currentRoom = data.room;
   renderRoom(data.room);
 });
-
 document.getElementById('btn-start').addEventListener('click', async () => {
   if (!currentRoom) return;
   const res = await fetch('/api/rooms/' + currentRoom.code + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const data = await res.json();
   if (data.error) { alert(data.error); }
 });
-
 const btnReplay = document.getElementById('btn-replay');
 if (btnReplay) {
-  btnReplay.addEventListener('click', async () => {
+  btnReplay.addEventListener('click', () => {
     if (!currentRoom) return;
     myStatus = 'alive';
     showRoom(currentRoom);
   });
 }
-
 socket.on('room-update', (room) => {
-  if (currentRoom && room.code === currentRoom.code) {
-    currentRoom = room;
-    renderRoom(room);
-  }
+  if (currentRoom && room.code === currentRoom.code) { currentRoom = room; renderRoom(room); }
 });
-
-socket.on('game-night', (data) => {
-  showGame(data);
-});
+socket.on('game-night', (data) => { showGame(data); });
 
 checkAuth();
