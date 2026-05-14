@@ -73,8 +73,9 @@ Entrar com Google
 <span id="room-code" class="room-code-value">------</span>
 </div>
 <div class="room-info">
-<span>Jogadores: <strong id="room-players-count">0</strong></span>
+<span>Jogadores: <strong id="room-players-count">0</strong>/50</span>
 <span>Minimo para iniciar: <strong id="room-min">5</strong></span>
+<span id="room-spectators" class="spectator-count-badge"></span>
 </div>
 </div>
 <div class="players-grid" id="players-list"></div>
@@ -85,7 +86,7 @@ Entrar com Google
 
 <!-- NOITE -->
 <div id="game-screen" class="screen">
-<div id="game-feed" class="game-feed"></div>
+<div class="game-feed" id="game-feed-night"></div>
 <main class="game-main">
 <div class="game-stars"></div>
 <div class="game-content">
@@ -93,7 +94,7 @@ Entrar com Google
 <div id="game-role" class="game-role">...</div>
 <p id="game-role-desc" class="game-role-desc"></p>
 <div class="countdown-wrap">
-<div id="game-countdown" class="countdown-num">60s</div>
+<div id="game-countdown" class="countdown-num">30s</div>
 <div class="countdown-track"><div id="countdown-bar" class="countdown-bar" style="width:100%"></div></div>
 </div>
 <div id="vitimas-section" style="display:none">
@@ -112,7 +113,7 @@ Entrar com Google
 
 <!-- VOTACAO -->
 <div id="vote-screen" class="screen">
-<div id="game-feed" class="game-feed"></div>
+<div class="game-feed" id="game-feed-vote"></div>
 <header>
 <div class="header-left">☀️ Discussao e Votacao</div>
 <div class="header-right">
@@ -136,7 +137,7 @@ Entrar com Google
 
 <!-- RESULTADO -->
 <div id="result-screen" class="screen">
-<div id="game-feed" class="game-feed"></div>
+<div class="game-feed" id="game-feed-result"></div>
 <main class="result-main">
 <div class="game-stars"></div>
 <div class="result-content">
@@ -145,6 +146,30 @@ Entrar com Google
 <div id="result-sub" class="result-sub"></div>
 <div id="result-role-reveal" class="role-reveal" style="display:none"></div>
 <button id="btn-replay" class="btn-start" style="display:none;margin-top:20px">🔄 Jogar Novamente</button>
+</div>
+</main>
+</div>
+
+<!-- ESPECTADOR -->
+<div id="spectator-screen" class="screen">
+<header>
+<div class="header-left">👁️ Modo Espectador</div>
+<div class="header-right">
+<button id="btn-sair-spectator" class="btn-sair">← Sair</button>
+</div>
+</header>
+<main class="spectator-main">
+<div class="game-feed spectator-count-badge" id="game-feed-spec"></div>
+<div class="spectator-content">
+<div class="spectator-eye">👁️</div>
+<div id="spectator-status" class="spectator-status">Aguardando jogo iniciar...</div>
+<div class="spectator-info">
+<p>Voce esta assistindo como espectador.</p>
+<p>Apenas observe — voce nao pode participar desta partida.</p>
+</div>
+<div class="spectator-counts">
+<span class="spectator-count-badge" id="spectator-count-val-badge">👁️ 0 espectadores</span>
+</div>
 </div>
 </main>
 </div>
