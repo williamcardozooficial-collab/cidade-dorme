@@ -11,35 +11,61 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const rooms = {};
 const gameTimers = {};
+
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let c = '';
   for (let i = 0; i < 6; i++) c += chars[Math.floor(Math.random() * chars.length)];
   return c;
 }
+
 const FAKE_PLAYERS = [
-  { id: 'fake_1', name: 'Ana Silva',     photo: 'https://i.pravatar.cc/80?img=1',  isHost: false },
-  { id: 'fake_2', name: 'Bruno Costa',   photo: 'https://i.pravatar.cc/80?img=3',  isHost: false },
-  { id: 'fake_3', name: 'Carla Mendes',  photo: 'https://i.pravatar.cc/80?img=5',  isHost: false },
-  { id: 'fake_4', name: 'Diego Lima',    photo: 'https://i.pravatar.cc/80?img=7',  isHost: false },
-  { id: 'fake_5', name: 'Eduarda Rocha', photo: 'https://i.pravatar.cc/80?img=9',  isHost: false },
-  { id: 'fake_6', name: 'Felipe Nunes',  photo: 'https://i.pravatar.cc/80?img=11', isHost: false },
+  { id: 'fake_1', name: 'Ana Silva', photo: 'https://i.pravatar.cc/80?img=1', isHost: false },
+  { id: 'fake_2', name: 'Bruno Costa', photo: 'https://i.pravatar.cc/80?img=3', isHost: false },
+  { id: 'fake_3', name: 'Carla Mendes', photo: 'https://i.pravatar.cc/80?img=5', isHost: false },
+  { id: 'fake_4', name: 'Diego Lima', photo: 'https://i.pravatar.cc/80?img=7', isHost: false },
+  { id: 'fake_5', name: 'Eduarda Rocha', photo: 'https://i.pravatar.cc/80?img=9', isHost: false },
+  { id: 'fake_6', name: 'Felipe Nunes', photo: 'https://i.pravatar.cc/80?img=11', isHost: false },
 ];
+
+// Adiciona evento ao feed de status da sala (max 5)
+function addFeed(room, msg, tipo) {
+  if (!room.feed) room.feed = [];
+  room.feed.unshift({ msg, tipo, ts: Date.now() });
+  if (room.feed.length > 5) room.feed.length = 5;
+  io.to(room.code).emit('feed-update', room.feed);
+}
+
 function iniciarNovaRodada(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
   const vivos = room.players.filter(p => !room.mortos.includes(p.id));
+
+  // Apenas 2 restam: revela cidadao depois assassino vencedor
   if (vivos.length <= 2) {
-    io.to(roomCode).emit('game-over', { vencedor: 'assassino', mortos: room.mortos });
+    const cidadao = vivos.find(p => p.id !== room.assassino);
+    const assassinoPlayer = vivos.find(p => p.id === room.assassino);
+    if (cidadao && assassinoPlayer) {
+      addFeed(room, cidadao.name + ' era um CIDADAO inocente.', 'cidadao');
+      io.to(roomCode).emit('game-over-reveal', {
+        cidadao: { id: cidadao.id, name: cidadao.name, photo: cidadao.photo },
+        assassino: { id: assassinoPlayer.id, name: assassinoPlayer.name, photo: assassinoPlayer.photo },
+        vencedor: 'assassino',
+        mortos: room.mortos
+      });
+    } else {
+      io.to(roomCode).emit('game-over', { vencedor: 'assassino', mortos: room.mortos });
+    }
     room.status = 'ended'; return;
   }
+
   if (room.mortos.includes(room.assassino)) {
     room.assassino = vivos[Math.floor(Math.random() * vivos.length)].id;
   }
   room.status = 'night'; room.vitima = null; room.votos = {}; room.votanteAtual = null;
   room.rodada = (room.rodada || 1) + 1;
   const vitimas = vivos.filter(p => p.id !== room.assassino).map(p => ({ id: p.id, name: p.name, photo: p.photo }));
-  io.to(roomCode).emit('game-night', { assassinoId: room.assassino, vitimas, segundos: 60, rodada: room.rodada });
+  io.to(roomCode).emit('game-night', { assassinoId: room.assassino, vitimas, segundos: 60, rodada: room.rodada, feed: room.feed || [] });
   if (gameTimers[roomCode]) clearTimeout(gameTimers[roomCode]);
   gameTimers[roomCode] = setTimeout(() => {
     const r = rooms[roomCode];
@@ -48,12 +74,14 @@ function iniciarNovaRodada(roomCode) {
       const possiveis = vivos.filter(p => p.id !== r.assassino);
       const escolhida = possiveis[Math.floor(Math.random() * possiveis.length)];
       r.vitima = escolhida.id; r.mortos.push(escolhida.id);
+      addFeed(r, '🔪 Assassino matou ' + escolhida.name, 'kill');
       io.to(roomCode).emit('kill-result', { vitima: escolhida, forcado: true, assassinoId: r.assassino });
     }
     r.status = 'result';
     setTimeout(() => iniciarVotacao(roomCode), 5000);
   }, 60000);
 }
+
 function iniciarVotacao(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -63,6 +91,7 @@ function iniciarVotacao(roomCode) {
   room.votacaoFila = vivos.map(p => p.id); room.votacaoIndex = 0;
   iniciarTurnoVotacao(roomCode);
 }
+
 function iniciarTurnoVotacao(roomCode) {
   const room = rooms[roomCode];
   if (!room || room.status !== 'voting') return;
@@ -73,8 +102,15 @@ function iniciarTurnoVotacao(roomCode) {
   const vivos = room.players.filter(p => !room.mortos.includes(p.id));
   const alvos = vivos.filter(p => p.id !== votanteId).map(p => ({ id: p.id, name: p.name, photo: p.photo }));
   room.votanteAtual = votanteId;
-  io.to(roomCode).emit('vote-turn', { votante: { id: votante.id, name: votante.name, photo: votante.photo }, alvos, segundos: 60, totalVotantes: room.votacaoFila.length, turnoAtual: idx + 1 });
+  io.to(roomCode).emit('vote-turn', {
+    votante: { id: votante.id, name: votante.name, photo: votante.photo },
+    alvos, segundos: 60, totalVotantes: room.votacaoFila.length, turnoAtual: idx + 1,
+    feed: room.feed || []
+  });
   if (gameTimers[roomCode + '_vote']) clearTimeout(gameTimers[roomCode + '_vote']);
+  // Fake players votam em 10s, reais em 60s
+  const isFake = votanteId.startsWith('fake_');
+  const delay = isFake ? 10000 : 60000;
   gameTimers[roomCode + '_vote'] = setTimeout(() => {
     const r = rooms[roomCode];
     if (!r || r.status !== 'voting' || r.votanteAtual !== votanteId) return;
@@ -84,8 +120,9 @@ function iniciarTurnoVotacao(roomCode) {
       io.to(roomCode).emit('vote-cast', { votanteId, alvoId: alvo.id, forcado: true });
     }
     r.votacaoIndex++; iniciarTurnoVotacao(roomCode);
-  }, 60000);
+  }, delay);
 }
+
 function finalizarVotacao(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -93,31 +130,47 @@ function finalizarVotacao(roomCode) {
   const contagem = {};
   Object.values(room.votos).forEach(alvoId => { contagem[alvoId] = (contagem[alvoId] || 0) + 1; });
   if (Object.keys(contagem).length === 0) {
-    io.to(roomCode).emit('vote-result', { empate: true, eliminado: null, era_assassino: false, votos: {} });
+    addFeed(room, '🤝 Votacao sem votos — empate!', 'empate');
+    io.to(roomCode).emit('vote-result', { empate: true, eliminado: null, era_assassino: false, votos: {}, feed: room.feed || [] });
     setTimeout(() => iniciarNovaRodada(roomCode), 5000); return;
   }
   const maxVotos = Math.max(...Object.values(contagem));
   const maisVotados = Object.keys(contagem).filter(id => contagem[id] === maxVotos);
   if (maisVotados.length > 1) {
-    io.to(roomCode).emit('vote-result', { empate: true, eliminado: null, era_assassino: false, votos: contagem });
+    addFeed(room, '🤝 Empate na votacao — ninguem eliminado', 'empate');
+    io.to(roomCode).emit('vote-result', { empate: true, eliminado: null, era_assassino: false, votos: contagem, feed: room.feed || [] });
     setTimeout(() => iniciarNovaRodada(roomCode), 5000); return;
   }
   const eliminadoId = maisVotados[0];
   const eliminado = room.players.find(p => p.id === eliminadoId);
   const eraAssassino = eliminadoId === room.assassino;
   room.mortos.push(eliminadoId);
-  io.to(roomCode).emit('vote-result', { empate: false, eliminado: { id: eliminado.id, name: eliminado.name, photo: eliminado.photo }, era_assassino: eraAssassino, votos: contagem });
+  const feedMsg = eraAssassino
+    ? '⚖️ ' + eliminado.name + ' foi eliminado — ERA O ASSASSINO!'
+    : '⚖️ ' + eliminado.name + ' foi eliminado — era cidadao';
+  addFeed(room, feedMsg, eraAssassino ? 'assassino-eliminado' : 'cidadao-eliminado');
+  io.to(roomCode).emit('vote-result', {
+    empate: false,
+    eliminado: { id: eliminado.id, name: eliminado.name, photo: eliminado.photo },
+    era_assassino: eraAssassino,
+    votos: contagem,
+    feed: room.feed || []
+  });
   if (eraAssassino) {
-    setTimeout(() => { io.to(roomCode).emit('game-over', { vencedor: 'cidade', mortos: room.mortos }); room.status = 'ended'; }, 5000);
+    setTimeout(() => {
+      io.to(roomCode).emit('game-over', { vencedor: 'cidade', mortos: room.mortos });
+      room.status = 'ended';
+    }, 5000);
   } else {
     const vivosRestantes = room.players.filter(p => !room.mortos.includes(p.id));
     if (vivosRestantes.length <= 2) {
-      setTimeout(() => { io.to(roomCode).emit('game-over', { vencedor: 'assassino', mortos: room.mortos }); room.status = 'ended'; }, 5000);
+      setTimeout(() => iniciarNovaRodada(roomCode), 5000);
     } else {
       setTimeout(() => iniciarNovaRodada(roomCode), 5000);
     }
   }
 }
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({ secret: process.env.SESSION_SECRET || 'cidade-dorme-secret', resave: false, saveUninitialized: false }));
@@ -139,7 +192,7 @@ app.post('/api/rooms', (req, res) => {
   let code; do { code = generateCode(); } while (rooms[code]);
   const userId = req.user.id; const userName = req.user.displayName || 'Jogador';
   const userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
-  rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }], status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1 };
+  rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }], status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1, feed: [] };
   res.json({ room: rooms[code] });
 });
 app.post('/api/rooms/:code/add-fake-players', (req, res) => {
@@ -177,11 +230,12 @@ app.post('/api/rooms/:code/start', (req, res) => {
   if (room.host !== req.user.id) return res.status(403).json({ error: 'Apenas o host pode iniciar' });
   if (room.players.length < room.minPlayers) return res.status(400).json({ error: 'Jogadores insuficientes' });
   if (room.status !== 'waiting') return res.status(400).json({ error: 'Jogo ja iniciado' });
-  room.status = 'night'; room.mortos = []; room.votos = {}; room.votanteAtual = null; room.rodada = 1;
+  room.status = 'night'; room.mortos = []; room.votos = {}; room.votanteAtual = null; room.rodada = 1; room.feed = [];
   const idx = Math.floor(Math.random() * room.players.length);
   const assassino = room.players[idx]; room.assassino = assassino.id; room.vitima = null;
+  addFeed(room, '🌙 Jogo iniciado! Rodada 1', 'sistema');
   const vitimas = room.players.filter(p => p.id !== assassino.id).map(p => ({ id: p.id, name: p.name, photo: p.photo }));
-  io.to(req.params.code.toUpperCase()).emit('game-night', { assassinoId: assassino.id, vitimas, segundos: 60, rodada: 1 });
+  io.to(req.params.code.toUpperCase()).emit('game-night', { assassinoId: assassino.id, vitimas, segundos: 60, rodada: 1, feed: room.feed });
   if (gameTimers[req.params.code.toUpperCase()]) clearTimeout(gameTimers[req.params.code.toUpperCase()]);
   gameTimers[req.params.code.toUpperCase()] = setTimeout(() => {
     const r = rooms[req.params.code.toUpperCase()];
@@ -190,6 +244,7 @@ app.post('/api/rooms/:code/start', (req, res) => {
       const possiveis = r.players.filter(p => p.id !== r.assassino);
       const escolhida = possiveis[Math.floor(Math.random() * possiveis.length)];
       r.vitima = escolhida.id; r.mortos.push(escolhida.id);
+      addFeed(r, '🔪 Assassino matou ' + escolhida.name, 'kill');
       io.to(req.params.code.toUpperCase()).emit('kill-result', { vitima: escolhida, forcado: true, assassinoId: r.assassino });
     }
     r.status = 'result';
@@ -209,6 +264,7 @@ app.post('/api/rooms/:code/kill', (req, res) => {
   if (!vitima) return res.status(404).json({ error: 'Jogador nao encontrado' });
   room.vitima = vitimaId; room.mortos.push(vitimaId); room.status = 'result';
   clearTimeout(gameTimers[req.params.code.toUpperCase()]);
+  addFeed(room, '🔪 Assassino matou ' + vitima.name, 'kill');
   io.to(req.params.code.toUpperCase()).emit('kill-result', { vitima, forcado: false, assassinoId: room.assassino });
   setTimeout(() => iniciarVotacao(req.params.code.toUpperCase()), 5000);
   res.json({ ok: true });
@@ -238,9 +294,9 @@ io.on('connection', (socket) => {
     const room = rooms[code]; if (room) socket.emit('room-update', room);
     socket.to(code).emit('peer-joined', { socketId: socket.id, userId });
   });
-  socket.on('webrtc-offer',  ({ to, offer })     => io.to(to).emit('webrtc-offer',  { from: socket.id, offer }));
-  socket.on('webrtc-answer', ({ to, answer })    => io.to(to).emit('webrtc-answer', { from: socket.id, answer }));
-  socket.on('webrtc-ice',    ({ to, candidate }) => io.to(to).emit('webrtc-ice',    { from: socket.id, candidate }));
+  socket.on('webrtc-offer', ({ to, offer }) => io.to(to).emit('webrtc-offer', { from: socket.id, offer }));
+  socket.on('webrtc-answer', ({ to, answer }) => io.to(to).emit('webrtc-answer', { from: socket.id, answer }));
+  socket.on('webrtc-ice', ({ to, candidate }) => io.to(to).emit('webrtc-ice', { from: socket.id, candidate }));
   socket.on('mic-status', ({ code, userId, muted }) => { socket.to(code).emit('mic-status', { userId, muted }); });
   socket.on('disconnect', () => {
     const info = socketUsers[socket.id];
