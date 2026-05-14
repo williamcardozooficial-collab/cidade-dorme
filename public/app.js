@@ -2,6 +2,176 @@ const socket = io();
 let currentUser = null;
 let currentRoom = null;
 
+// ---- AUDIO / WebRTC ----
+let localStream = null;
+let micMuted = true; // começa mutado
+let peers = {}; // socketId -> RTCPeerConnection
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+async function ativarMicrofone() {
+  if (localStream) return; // ja tem stream
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // Começa mutado: desativa todas as tracks de audio
+    localStream.getAudioTracks().forEach(t => { t.enabled = false; });
+    micMuted = true;
+    atualizarBotaoMic();
+    console.log('Microfone ativado');
+  } catch (e) {
+    console.error('Erro ao acessar microfone:', e);
+    alert('Nao foi possivel acessar o microfone. Verifique as permissoes do navegador.');
+  }
+}
+
+function toggleMic() {
+  if (!localStream) {
+    ativarMicrofone().then(() => {
+      // Depois de ativar, liga o mic
+      setTimeout(() => {
+        micMuted = false;
+        localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+        atualizarBotaoMic();
+        if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: false });
+      }, 300);
+    });
+    return;
+  }
+  micMuted = !micMuted;
+  localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
+  atualizarBotaoMic();
+  if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: micMuted });
+}
+
+function atualizarBotaoMic() {
+  const btn = document.getElementById('btn-mic');
+  if (!btn) return;
+  if (micMuted) {
+    btn.textContent = '🔇 Microfone';
+    btn.classList.remove('mic-on');
+    btn.classList.add('mic-off');
+  } else {
+    btn.textContent = '🎙️ Microfone';
+    btn.classList.remove('mic-off');
+    btn.classList.add('mic-on');
+  }
+}
+
+// Cria peer connection com outro socket
+function criarPeer(socketId, isInitiator) {
+  if (peers[socketId]) peers[socketId].close();
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  peers[socketId] = pc;
+
+  // Adiciona stream local se tiver
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
+
+  // Quando recebe audio remoto, cria elemento de audio
+  pc.ontrack = (e) => {
+    let audioEl = document.getElementById('audio-' + socketId);
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = 'audio-' + socketId;
+      audioEl.autoplay = true;
+      document.body.appendChild(audioEl);
+    }
+    audioEl.srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.emit('webrtc-ice', { to: socketId, candidate: e.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log('Peer', socketId, 'estado:', pc.connectionState);
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      removerPeer(socketId);
+    }
+  };
+
+  if (isInitiator) {
+    pc.createOffer().then(offer => {
+      pc.setLocalDescription(offer);
+      socket.emit('webrtc-offer', { to: socketId, offer });
+    });
+  }
+
+  return pc;
+}
+
+function removerPeer(socketId) {
+  if (peers[socketId]) {
+    peers[socketId].close();
+    delete peers[socketId];
+  }
+  const audioEl = document.getElementById('audio-' + socketId);
+  if (audioEl) audioEl.remove();
+}
+
+function pararAudio() {
+  // Fecha todos os peers
+  Object.keys(peers).forEach(id => removerPeer(id));
+  // Para stream local
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  micMuted = true;
+  atualizarBotaoMic();
+}
+
+// ---- SOCKET WebRTC ----
+socket.on('peer-joined', async ({ socketId, userId }) => {
+  console.log('peer entrou:', socketId, userId);
+  // Apenas inicia peer se tiver microfone ativo
+  if (localStream) {
+    criarPeer(socketId, true);
+  }
+});
+
+socket.on('webrtc-offer', async ({ from, offer }) => {
+  if (!localStream) await ativarMicrofone();
+  const pc = criarPeer(from, false);
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('webrtc-answer', { to: from, answer });
+});
+
+socket.on('webrtc-answer', async ({ from, answer }) => {
+  const pc = peers[from];
+  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+});
+
+socket.on('webrtc-ice', async ({ from, candidate }) => {
+  const pc = peers[from];
+  if (pc && candidate) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+  }
+});
+
+socket.on('peer-left', ({ socketId }) => {
+  removerPeer(socketId);
+});
+
+socket.on('mic-status', ({ userId, muted }) => {
+  // Atualiza indicador visual no card do jogador
+  const indicator = document.querySelector('[data-userid="' + userId + '"] .mic-indicator');
+  if (indicator) {
+    indicator.textContent = muted ? '🔇' : '🎙️';
+    indicator.classList.toggle('falando', !muted);
+  }
+});
+
+// ---- AUTENTICACAO / TELAS ----
 async function checkAuth() {
   const res = await fetch('/api/me');
   const data = await res.json();
@@ -50,12 +220,10 @@ async function carregarSalas() {
     const res = await fetch('/api/rooms');
     const data = await res.json();
     const salas = data.rooms;
-
     if (!salas || salas.length === 0) {
       lista.innerHTML = '<div class="salas-vazio">Nenhuma sala aberta no momento.<br>Que tal criar uma?</div>';
       return;
     }
-
     lista.innerHTML = '';
     salas.forEach(sala => {
       const div = document.createElement('div');
@@ -71,7 +239,6 @@ async function carregarSalas() {
         '</div>';
       lista.appendChild(div);
     });
-
     lista.querySelectorAll('.btn-entrar-sala').forEach(btn => {
       btn.addEventListener('click', () => entrarNaSala(btn.dataset.code));
     });
@@ -82,8 +249,7 @@ async function carregarSalas() {
 
 async function entrarNaSala(code) {
   const res = await fetch('/api/rooms/' + code.toUpperCase() + '/join', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    method: 'POST', headers: { 'Content-Type': 'application/json' }
   });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
@@ -97,7 +263,7 @@ function showRoom(room) {
   document.getElementById('room-screen').classList.add('active');
   currentRoom = room;
   renderRoom(room);
-  socket.emit('join-room', { code: room.code });
+  socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null });
 }
 
 function renderRoom(room) {
@@ -110,10 +276,12 @@ function renderRoom(room) {
   room.players.forEach(p => {
     const div = document.createElement('div');
     div.className = 'player-item';
+    div.setAttribute('data-userid', p.id);
     const initials = p.name.charAt(0).toUpperCase();
+    const micIcon = '<span class="mic-indicator">🔇</span>';
     div.innerHTML = p.photo
-      ? '<img src="' + p.photo + '" class="player-avatar-img"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>'
-      : '<div class="player-avatar-placeholder">' + initials + '</div><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>';
+      ? '<img src="' + p.photo + '" class="player-avatar-img"><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>' + micIcon + '</div>'
+      : '<div class="player-avatar-placeholder">' + initials + '</div><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>' + micIcon + '</div>';
     list.appendChild(div);
   });
 
@@ -126,40 +294,26 @@ function renderRoom(room) {
     const canStart = room.players.length >= room.minPlayers;
     startBtn.disabled = !canStart;
     startBtn.title = canStart ? '' : 'Precisa de pelo menos ' + room.minPlayers + ' jogadores';
-
-    // Mostrar botao de teste se ainda nao tiver jogadores suficientes
-    if (fakeBtn) {
-      fakeBtn.style.display = room.players.length < room.minPlayers ? 'block' : 'none';
-    }
+    if (fakeBtn) fakeBtn.style.display = room.players.length < room.minPlayers ? 'block' : 'none';
   } else {
     startBtn.style.display = 'none';
     if (fakeBtn) fakeBtn.style.display = 'none';
   }
 }
 
-// EVENTOS
+// ---- EVENTOS ----
 document.getElementById('card-criar').addEventListener('click', async () => {
   const res = await fetch('/api/rooms', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({})
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
   });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
   showRoom(data.room);
 });
 
-document.getElementById('card-entrar').addEventListener('click', () => {
-  showJoin();
-});
-
-document.getElementById('btn-voltar-join').addEventListener('click', () => {
-  showHome(currentUser);
-});
-
-document.getElementById('btn-atualizar').addEventListener('click', () => {
-  carregarSalas();
-});
+document.getElementById('card-entrar').addEventListener('click', () => showJoin());
+document.getElementById('btn-voltar-join').addEventListener('click', () => showHome(currentUser));
+document.getElementById('btn-atualizar').addEventListener('click', () => carregarSalas());
 
 document.getElementById('btn-buscar-codigo').addEventListener('click', () => {
   const codigo = document.getElementById('input-codigo').value.trim().toUpperCase();
@@ -174,17 +328,20 @@ document.getElementById('input-codigo').addEventListener('keydown', (e) => {
 
 document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   if (!currentRoom) return;
+  pararAudio();
   await fetch('/api/rooms/' + currentRoom.code + '/leave', { method: 'DELETE' });
   currentRoom = null;
   showHome(currentUser);
 });
 
-// Botao adicionar jogadores ficticios (para testes)
+document.getElementById('btn-mic').addEventListener('click', () => {
+  toggleMic();
+});
+
 document.getElementById('btn-add-fake').addEventListener('click', async () => {
   if (!currentRoom) return;
   const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    method: 'POST', headers: { 'Content-Type': 'application/json' }
   });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
