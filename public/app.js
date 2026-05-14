@@ -1,11 +1,12 @@
 const socket = io();
 let currentUser = null;
 let currentRoom = null;
+let countdownInterval = null;
 
 // ---- AUDIO / WebRTC ----
 let localStream = null;
-let micMuted = true; // começa mutado
-let peers = {}; // socketId -> RTCPeerConnection
+let micMuted = true;
+let peers = {};
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -14,24 +15,28 @@ const RTC_CONFIG = {
 };
 
 async function ativarMicrofone() {
-  if (localStream) return; // ja tem stream
+  if (localStream) return;
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    // Começa mutado: desativa todas as tracks de audio
     localStream.getAudioTracks().forEach(t => { t.enabled = false; });
     micMuted = true;
     atualizarBotaoMic();
-    console.log('Microfone ativado');
   } catch (e) {
-    console.error('Erro ao acessar microfone:', e);
     alert('Nao foi possivel acessar o microfone. Verifique as permissoes do navegador.');
   }
+}
+
+function forceMute() {
+  if (!localStream) return;
+  micMuted = true;
+  localStream.getAudioTracks().forEach(t => { t.enabled = false; });
+  atualizarBotaoMic();
+  if (currentRoom) socket.emit('mic-status', { code: currentRoom.code, userId: currentUser.id, muted: true });
 }
 
 function toggleMic() {
   if (!localStream) {
     ativarMicrofone().then(() => {
-      // Depois de ativar, liga o mic
       setTimeout(() => {
         micMuted = false;
         localStream.getAudioTracks().forEach(t => { t.enabled = true; });
@@ -61,18 +66,11 @@ function atualizarBotaoMic() {
   }
 }
 
-// Cria peer connection com outro socket
 function criarPeer(socketId, isInitiator) {
   if (peers[socketId]) peers[socketId].close();
   const pc = new RTCPeerConnection(RTC_CONFIG);
   peers[socketId] = pc;
-
-  // Adiciona stream local se tiver
-  if (localStream) {
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  }
-
-  // Quando recebe audio remoto, cria elemento de audio
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   pc.ontrack = (e) => {
     let audioEl = document.getElementById('audio-' + socketId);
     if (!audioEl) {
@@ -83,60 +81,38 @@ function criarPeer(socketId, isInitiator) {
     }
     audioEl.srcObject = e.streams[0];
   };
-
   pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      socket.emit('webrtc-ice', { to: socketId, candidate: e.candidate });
-    }
+    if (e.candidate) socket.emit('webrtc-ice', { to: socketId, candidate: e.candidate });
   };
-
   pc.onconnectionstatechange = () => {
-    console.log('Peer', socketId, 'estado:', pc.connectionState);
-    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-      removerPeer(socketId);
-    }
+    if (['disconnected','failed','closed'].includes(pc.connectionState)) removerPeer(socketId);
   };
-
   if (isInitiator) {
     pc.createOffer().then(offer => {
       pc.setLocalDescription(offer);
       socket.emit('webrtc-offer', { to: socketId, offer });
     });
   }
-
   return pc;
 }
 
 function removerPeer(socketId) {
-  if (peers[socketId]) {
-    peers[socketId].close();
-    delete peers[socketId];
-  }
-  const audioEl = document.getElementById('audio-' + socketId);
-  if (audioEl) audioEl.remove();
+  if (peers[socketId]) { peers[socketId].close(); delete peers[socketId]; }
+  const el = document.getElementById('audio-' + socketId);
+  if (el) el.remove();
 }
 
 function pararAudio() {
-  // Fecha todos os peers
   Object.keys(peers).forEach(id => removerPeer(id));
-  // Para stream local
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   micMuted = true;
   atualizarBotaoMic();
 }
 
 // ---- SOCKET WebRTC ----
-socket.on('peer-joined', async ({ socketId, userId }) => {
-  console.log('peer entrou:', socketId, userId);
-  // Apenas inicia peer se tiver microfone ativo
-  if (localStream) {
-    criarPeer(socketId, true);
-  }
+socket.on('peer-joined', ({ socketId }) => {
+  if (localStream) criarPeer(socketId, true);
 });
-
 socket.on('webrtc-offer', async ({ from, offer }) => {
   if (!localStream) await ativarMicrofone();
   const pc = criarPeer(from, false);
@@ -145,25 +121,16 @@ socket.on('webrtc-offer', async ({ from, offer }) => {
   await pc.setLocalDescription(answer);
   socket.emit('webrtc-answer', { to: from, answer });
 });
-
 socket.on('webrtc-answer', async ({ from, answer }) => {
   const pc = peers[from];
   if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
 });
-
 socket.on('webrtc-ice', async ({ from, candidate }) => {
   const pc = peers[from];
-  if (pc && candidate) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
-  }
+  if (pc && candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {} }
 });
-
-socket.on('peer-left', ({ socketId }) => {
-  removerPeer(socketId);
-});
-
+socket.on('peer-left', ({ socketId }) => removerPeer(socketId));
 socket.on('mic-status', ({ userId, muted }) => {
-  // Atualiza indicador visual no card do jogador
   const indicator = document.querySelector('[data-userid="' + userId + '"] .mic-indicator');
   if (indicator) {
     indicator.textContent = muted ? '🔇' : '🎙️';
@@ -171,31 +138,24 @@ socket.on('mic-status', ({ userId, muted }) => {
   }
 });
 
-// ---- AUTENTICACAO / TELAS ----
+// ---- TELAS ----
+function hideAll() {
+  ['login-screen','home-screen','join-screen','room-screen','game-screen'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+}
+
 async function checkAuth() {
   const res = await fetch('/api/me');
   const data = await res.json();
-  if (data.user) {
-    currentUser = data.user;
-    showHome(data.user);
-  } else {
-    showLogin();
-  }
+  if (data.user) { currentUser = data.user; showHome(data.user); }
+  else showLogin();
 }
 
-function showLogin() {
-  document.getElementById('login-screen').classList.add('active');
-  document.getElementById('home-screen').classList.remove('active');
-  document.getElementById('join-screen').classList.remove('active');
-  document.getElementById('room-screen').classList.remove('active');
-}
+function showLogin()  { hideAll(); document.getElementById('login-screen').classList.add('active'); }
 
 function showHome(user) {
-  document.getElementById('login-screen').classList.remove('active');
-  document.getElementById('home-screen').classList.add('active');
-  document.getElementById('join-screen').classList.remove('active');
-  document.getElementById('room-screen').classList.remove('active');
-
+  hideAll(); document.getElementById('home-screen').classList.add('active');
   const name = user.displayName || user.name || 'Jogador';
   const photo = (user.photos && user.photos[0]) ? user.photos[0].value : '';
   document.getElementById('welcome-name').textContent = name.split(' ')[0];
@@ -205,14 +165,147 @@ function showHome(user) {
 }
 
 function showJoin() {
-  document.getElementById('login-screen').classList.remove('active');
-  document.getElementById('home-screen').classList.remove('active');
-  document.getElementById('join-screen').classList.add('active');
-  document.getElementById('room-screen').classList.remove('active');
+  hideAll(); document.getElementById('join-screen').classList.add('active');
   document.getElementById('input-codigo').value = '';
   carregarSalas();
 }
 
+function showRoom(room) {
+  hideAll(); document.getElementById('room-screen').classList.add('active');
+  currentRoom = room;
+  renderRoom(room);
+  socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null });
+}
+
+// ---- TELA DE JOGO (noite) ----
+function showGame(data) {
+  hideAll();
+  document.getElementById('game-screen').classList.add('active');
+
+  const isAssassino = currentUser && data.assassinoId === currentUser.id;
+
+  // Papel do jogador
+  const roleEl = document.getElementById('game-role');
+  const roleDescEl = document.getElementById('game-role-desc');
+  if (isAssassino) {
+    roleEl.textContent = '🔪 Você é o ASSASSINO';
+    roleEl.className = 'game-role assassino';
+    roleDescEl.textContent = 'Escolha sua vítima. Você tem 60 segundos.';
+  } else {
+    roleEl.textContent = '😴 Você é um CIDADÃO';
+    roleEl.className = 'game-role cidadao';
+    roleDescEl.textContent = 'A cidade dorme... O assassino está agindo.';
+  }
+
+  // Lista de vítimas (só para o assassino)
+  const vitimasSection = document.getElementById('vitimas-section');
+  const vitimasList = document.getElementById('vitimas-list');
+  if (isAssassino) {
+    vitimasSection.style.display = 'block';
+    vitimasList.innerHTML = '';
+    data.vitimas.forEach(v => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-vitima';
+      btn.setAttribute('data-id', v.id);
+      btn.innerHTML = (v.photo ? '<img src="' + v.photo + '" class="vitima-avatar">' : '<div class="vitima-avatar-placeholder">' + v.name.charAt(0) + '</div>') +
+        '<span>' + v.name + '</span>';
+      btn.addEventListener('click', () => escolherVitima(v.id));
+      vitimasList.appendChild(btn);
+    });
+  } else {
+    vitimasSection.style.display = 'none';
+  }
+
+  // Mensagem de resultado (escondida)
+  document.getElementById('kill-result-box').style.display = 'none';
+  document.getElementById('game-overlay-text').textContent = '';
+
+  // Inicia countdown
+  iniciarCountdown(data.segundos || 60);
+
+  // Fecha microfone de todos
+  forceMute();
+  const btnMic = document.getElementById('btn-mic');
+  if (btnMic) { btnMic.disabled = true; btnMic.title = 'Microfone bloqueado durante a noite'; }
+}
+
+function iniciarCountdown(segundos) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  let restante = segundos;
+  const el = document.getElementById('game-countdown');
+  const bar = document.getElementById('countdown-bar');
+
+  function tick() {
+    if (restante < 0) { clearInterval(countdownInterval); return; }
+    el.textContent = restante + 's';
+    const pct = (restante / segundos) * 100;
+    bar.style.width = pct + '%';
+    bar.style.background = restante > 20 ? '#6060ff' : restante > 10 ? '#ffaa00' : '#ff4444';
+    restante--;
+  }
+  tick();
+  countdownInterval = setInterval(tick, 1000);
+}
+
+async function escolherVitima(vitimaId) {
+  if (!currentRoom) return;
+  // Desabilita todos os botoes para evitar duplo clique
+  document.querySelectorAll('.btn-vitima').forEach(b => { b.disabled = true; b.classList.add('escolhida'); });
+  const res = await fetch('/api/rooms/' + currentRoom.code + '/kill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vitimaId })
+  });
+  const data = await res.json();
+  if (data.error) { alert(data.error); document.querySelectorAll('.btn-vitima').forEach(b => { b.disabled = false; b.classList.remove('escolhida'); }); }
+}
+
+// ---- RESULTADO DO ASSASSINATO ----
+socket.on('kill-result', (data) => {
+  if (countdownInterval) clearInterval(countdownInterval);
+
+  const isAssassino = currentUser && data.assassinoId === currentUser.id;
+  const isVitima = currentUser && data.vitima.id === currentUser.id;
+
+  // Para todos: mostra overlay na tela de jogo
+  const box = document.getElementById('kill-result-box');
+  const countdown = document.getElementById('game-countdown');
+  const bar = document.getElementById('countdown-bar');
+
+  countdown.textContent = '0s';
+  bar.style.width = '0%';
+
+  box.style.display = 'flex';
+
+  const icon = document.getElementById('kill-icon');
+  const msg = document.getElementById('kill-msg');
+  const sub = document.getElementById('kill-sub');
+
+  if (data.forcado) {
+    icon.textContent = '☠️';
+    msg.textContent = data.vitima.name + ' foi assassinado!';
+    sub.textContent = 'O assassino agiu no último segundo...';
+  } else {
+    icon.textContent = '🔪';
+    msg.textContent = data.vitima.name + ' foi assassinado!';
+    sub.textContent = isAssassino ? 'Você escolheu sua vítima.' : isVitima ? 'Você foi eliminado!' : 'O assassino fez sua escolha.';
+  }
+
+  // Destaca vítima escolhida (se for assassino)
+  if (isAssassino) {
+    document.querySelectorAll('.btn-vitima').forEach(b => {
+      if (b.getAttribute('data-id') === data.vitima.id) b.classList.add('morta');
+    });
+  }
+
+  // Reabilita microfone após 3s
+  setTimeout(() => {
+    const btnMic = document.getElementById('btn-mic');
+    if (btnMic) { btnMic.disabled = false; btnMic.title = ''; }
+  }, 3000);
+});
+
+// ---- SALA ----
 async function carregarSalas() {
   const lista = document.getElementById('salas-lista');
   lista.innerHTML = '<div class="salas-loading">Carregando...</div>';
@@ -229,14 +322,9 @@ async function carregarSalas() {
       const div = document.createElement('div');
       div.className = 'sala-item';
       div.innerHTML =
-        '<div class="sala-info">' +
-        '<span class="sala-codigo">' + sala.code + '</span>' +
-        '<span class="sala-host">Host: ' + sala.host + '</span>' +
-        '</div>' +
-        '<div class="sala-right">' +
-        '<span class="sala-players">\u{1F465} ' + sala.players + ' jogadores</span>' +
-        '<button class="btn-entrar-sala" data-code="' + sala.code + '">Entrar</button>' +
-        '</div>';
+        '<div class="sala-info"><span class="sala-codigo">' + sala.code + '</span><span class="sala-host">Host: ' + sala.host + '</span></div>' +
+        '<div class="sala-right"><span class="sala-players">👥 ' + sala.players + ' jogadores</span>' +
+        '<button class="btn-entrar-sala" data-code="' + sala.code + '">Entrar</button></div>';
       lista.appendChild(div);
     });
     lista.querySelectorAll('.btn-entrar-sala').forEach(btn => {
@@ -254,16 +342,6 @@ async function entrarNaSala(code) {
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
   showRoom(data.room);
-}
-
-function showRoom(room) {
-  document.getElementById('login-screen').classList.remove('active');
-  document.getElementById('home-screen').classList.remove('active');
-  document.getElementById('join-screen').classList.remove('active');
-  document.getElementById('room-screen').classList.add('active');
-  currentRoom = room;
-  renderRoom(room);
-  socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null });
 }
 
 function renderRoom(room) {
@@ -288,7 +366,6 @@ function renderRoom(room) {
   const startBtn = document.getElementById('btn-start');
   const fakeBtn = document.getElementById('btn-add-fake');
   const isHost = currentUser && room.host === currentUser.id;
-
   if (isHost) {
     startBtn.style.display = 'block';
     const canStart = room.players.length >= room.minPlayers;
@@ -303,9 +380,7 @@ function renderRoom(room) {
 
 // ---- EVENTOS ----
 document.getElementById('card-criar').addEventListener('click', async () => {
-  const res = await fetch('/api/rooms', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
-  });
+  const res = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
   showRoom(data.room);
@@ -320,7 +395,6 @@ document.getElementById('btn-buscar-codigo').addEventListener('click', () => {
   if (!codigo) { alert('Digite o codigo da sala'); return; }
   entrarNaSala(codigo);
 });
-
 document.getElementById('input-codigo').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-buscar-codigo').click();
   document.getElementById('input-codigo').value = document.getElementById('input-codigo').value.toUpperCase();
@@ -334,19 +408,22 @@ document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   showHome(currentUser);
 });
 
-document.getElementById('btn-mic').addEventListener('click', () => {
-  toggleMic();
-});
+document.getElementById('btn-mic').addEventListener('click', () => toggleMic());
 
 document.getElementById('btn-add-fake').addEventListener('click', async () => {
   if (!currentRoom) return;
-  const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }
-  });
+  const res = await fetch('/api/rooms/' + currentRoom.code + '/add-fake-players', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
   currentRoom = data.room;
   renderRoom(data.room);
+});
+
+document.getElementById('btn-start').addEventListener('click', async () => {
+  if (!currentRoom) return;
+  const res = await fetch('/api/rooms/' + currentRoom.code + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  const data = await res.json();
+  if (data.error) { alert(data.error); }
 });
 
 socket.on('room-update', (room) => {
@@ -354,6 +431,11 @@ socket.on('room-update', (room) => {
     currentRoom = room;
     renderRoom(room);
   }
+});
+
+// Servidor emite game-night para todos na sala
+socket.on('game-night', (data) => {
+  showGame(data);
 });
 
 checkAuth();
