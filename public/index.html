@@ -8,6 +8,7 @@
 </head>
 <body>
 
+  <!-- LOGIN -->
   <div id="login-screen" class="screen">
     <div class="bg-stars"></div>
     <div class="login-box">
@@ -21,6 +22,7 @@
     </div>
   </div>
 
+  <!-- HOME -->
   <div id="home-screen" class="screen">
     <header>
       <div class="header-left">🌙 Cidade Dorme</div>
@@ -41,12 +43,36 @@
         <div class="card" id="card-entrar">
           <div class="card-icon">🚪</div>
           <div class="card-title">Entrar em Sala</div>
-          <div class="card-desc">Entre em uma sala com o codigo</div>
+          <div class="card-desc">Veja salas ativas ou busque pelo codigo</div>
         </div>
       </div>
     </main>
   </div>
 
+  <!-- ENTRAR EM SALA -->
+  <div id="join-screen" class="screen">
+    <header>
+      <div class="header-left">🌙 Cidade Dorme</div>
+      <div class="header-right">
+        <button id="btn-voltar-join" class="btn-sair">← Voltar</button>
+      </div>
+    </header>
+    <main class="join-main">
+      <div class="join-busca">
+        <input id="input-codigo" type="text" placeholder="Digitar codigo da sala..." maxlength="6" class="input-codigo">
+        <button id="btn-buscar-codigo" class="btn-buscar">Entrar</button>
+      </div>
+      <div class="salas-header">
+        <h3>Salas Abertas</h3>
+        <button id="btn-atualizar" class="btn-refresh">↻ Atualizar</button>
+      </div>
+      <div id="salas-lista" class="salas-lista">
+        <div class="salas-loading">Carregando salas...</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- SALA -->
   <div id="room-screen" class="screen">
     <header>
       <div class="header-left">🌙 Cidade Dorme</div>
