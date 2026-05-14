@@ -62,6 +62,20 @@ app.get('/api/me', (req, res) => {
   }
 });
 
+// LISTAR SALAS ATIVAS
+app.get('/api/rooms', (req, res) => {
+  const list = Object.values(rooms)
+    .filter(r => r.status === 'waiting')
+    .map(r => ({
+      code: r.code,
+      players: r.players.length,
+      minPlayers: r.minPlayers,
+      host: r.players.find(p => p.isHost) ? r.players.find(p => p.isHost).name : 'Host'
+    }));
+  res.json({ rooms: list });
+});
+
+// CRIAR SALA
 app.post('/api/rooms', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
 
@@ -84,12 +98,14 @@ app.post('/api/rooms', (req, res) => {
   res.json({ room: rooms[code] });
 });
 
+// VER SALA
 app.get('/api/rooms/:code', (req, res) => {
   const room = rooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   res.json({ room });
 });
 
+// ENTRAR NA SALA
 app.post('/api/rooms/:code/join', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = rooms[req.params.code.toUpperCase()];
@@ -110,6 +126,7 @@ app.post('/api/rooms/:code/join', (req, res) => {
   res.json({ room });
 });
 
+// SAIR DA SALA
 app.delete('/api/rooms/:code/leave', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = rooms[req.params.code.toUpperCase()];
