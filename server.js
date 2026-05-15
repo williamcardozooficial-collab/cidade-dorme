@@ -10,9 +10,9 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
 const rooms = {};
+const gameTimers = {};
 const inactivityTimers = {};
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000;
-const gameTimers = {};
 const MAX_PLAYERS = 50;
 
 function generateCode() {
@@ -40,22 +40,19 @@ const room = rooms[roomCode];
 if (!room) return;
 clearTimeout(gameTimers[roomCode]);
 clearTimeout(gameTimers[roomCode + '_vote']);
-  clearTimeout(inactivityTimers[roomCode]);
-  delete inactivityTimers[roomCode];
+clearTimeout(inactivityTimers[roomCode]);
+delete inactivityTimers[roomCode];
 io.to(roomCode).emit('sala-fechada', { motivo: motivo || 'Sala encerrada.' });
 delete rooms[roomCode];
 }
 
 function resetInactivityTimer(roomCode) {
-  const room = rooms[roomCode];
-  if (!room) return;
-  if (inactivityTimers[roomCode]) clearTimeout(inactivityTimers[roomCode]);
-  inactivityTimers[roomCode] = setTimeout(() => {
-    const r = rooms[roomCode];
-    if (!r) return;
-    fecharSala(roomCode, 'Sala encerrada por inatividade (10 minutos sem atividade).');
-  }, INACTIVITY_TIMEOUT);
+clearTimeout(inactivityTimers[roomCode]);
+inactivityTimers[roomCode] = setTimeout(() => {
+fecharSala(roomCode, 'Sala encerrada por inatividade (10 minutos sem atividade).');
+}, INACTIVITY_TIMEOUT);
 }
+
 function addFeed(room, msg, tipo) {
 if (!room.feed) room.feed = [];
 room.feed.unshift({ msg, tipo, ts: Date.now() });
@@ -203,8 +200,10 @@ res.json({ room: rooms[code] });
 app.post('/api/rooms/:code/add-fake-players', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
-gameTimers\[req\.params\.code\.toUpperCase\(\)\] = setTimeoutif (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
+if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
+if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
 for (const fp of FAKE_PLAYERS) { if (!room.players.find(p => p.id === fp.id)) room.players.push({ ...fp }); }
+resetInactivityTimer(req.params.code.toUpperCase());
 io.to(req.params.code.toUpperCase()).emit('room-update', room); res.json({ room });
 });
 app.get('/api/rooms/:code', (req, res) => { const room = rooms[req.params.code.toUpperCase()]; if (!room) return res.status(404).json({ error: 'Sala nao encontrada' }); res.json({ room }); });
@@ -215,9 +214,9 @@ if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
 if (room.status !== 'waiting' || room.players.length >= MAX_PLAYERS) return res.json({ room, asSpectator: true });
 if (!room.players.find(p => p.id === userId)) room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
-io.to(req.params.code.toUpperCase()).emit('room-update', room);
 resetInactivityTimer(req.params.code.toUpperCase());
-  res.json({ room, asSpectator: false });
+io.to(req.params.code.toUpperCase()).emit('room-update', room);
+res.json({ room, asSpectator: false });
 });
 app.delete('/api/rooms/:code/leave', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
@@ -226,8 +225,8 @@ if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
 room.players = room.players.filter(p => p.id !== userId);
 if (apenasJogadoresFicticios(room)) { fecharSala(req.params.code.toUpperCase(), 'Todos os jogadores reais saíram.'); return res.json({ ok: true }); }
-if (room.players.length === 0 && room.status === 'waiting') { clearTimeout(gameTimers[req.params.code.toUpperCase()]); delete rooms[req.params.code.toUpperCase()]; }
-else { if (room.host === userId && room.players.length > 0) { const nh = room.players.find(p => !p.id.startsWith('fake_')) || room.players[0]; room.host = nh.id; nh.isHost = true; } io.to(req.params.code.toUpperCase()).emit('room-update', room); }
+if (room.players.length === 0 && room.status === 'waiting') { clearTimeout(gameTimers[req.params.code.toUpperCase()]); clearTimeout(inactivityTimers[req.params.code.toUpperCase()]); delete inactivityTimers[req.params.code.toUpperCase()]; delete rooms[req.params.code.toUpperCase()]; }
+else { if (room.host === userId && room.players.length > 0) { const nh = room.players.find(p => !p.id.startsWith('fake_')) || room.players[0]; room.host = nh.id; nh.isHost = true; } resetInactivityTimer(req.params.code.toUpperCase()); io.to(req.params.code.toUpperCase()).emit('room-update', room); }
 res.json({ ok: true });
 });
 // Jogador opta por jogar novamente — fica na sala (status ended -> waiting via reset)
@@ -238,6 +237,7 @@ if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 // Apenas garante que o jogador esta na lista
 const userId = req.user.id;
 if (!room.players.find(p => p.id === userId)) room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
+resetInactivityTimer(req.params.code.toUpperCase());
 res.json({ ok: true, room });
 });
 // Host reseta a sala para waiting apos o jogo
@@ -254,6 +254,7 @@ room.players = room.players.filter(p => !p.id.startsWith('fake_'));
 room.status = 'waiting'; room.mortos = []; room.votos = {}; room.votanteAtual = null;
 room.assassino = null; room.vitima = null; room.rodada = 1; room.feed = [];
 room.players.forEach(p => { p.isHost = p.id === room.host; });
+resetInactivityTimer(req.params.code.toUpperCase());
 io.to(req.params.code.toUpperCase()).emit('room-reset', { room });
 res.json({ ok: true, room });
 });
@@ -269,6 +270,7 @@ const idx = Math.floor(Math.random() * room.players.length);
 const assassino = room.players[idx]; room.assassino = assassino.id; room.vitima = null;
 addFeed(room, 'Jogo iniciado! Rodada 1', 'sistema');
 const vitimas = room.players.filter(p => p.id !== assassino.id).map(p => ({ id: p.id, name: p.name, photo: p.photo }));
+resetInactivityTimer(req.params.code.toUpperCase());
 io.to(req.params.code.toUpperCase()).emit('game-night', { assassinoId: assassino.id, vitimas, segundos: 30, rodada: 1, feed: room.feed });
 if (gameTimers[req.params.code.toUpperCase()]) clearTimeout(gameTimers[req.params.code.toUpperCase()]);
 gameTimers[req.params.code.toUpperCase()] = setTimeout(() => {
@@ -299,6 +301,7 @@ if (!vitima) return res.status(404).json({ error: 'Jogador nao encontrado' });
 room.vitima = vitimaId; room.mortos.push(vitimaId); room.status = 'result';
 clearTimeout(gameTimers[req.params.code.toUpperCase()]);
 addFeed(room, 'Assassino matou ' + vitima.name, 'kill');
+resetInactivityTimer(req.params.code.toUpperCase());
 io.to(req.params.code.toUpperCase()).emit('kill-result', { vitima, forcado: false, assassinoId: room.assassino });
 setTimeout(() => iniciarVotacao(req.params.code.toUpperCase()), 5000);
 res.json({ ok: true });
@@ -316,6 +319,7 @@ const alvo = room.players.find(p => p.id === alvoId && !room.mortos.includes(p.i
 if (!alvo) return res.status(404).json({ error: 'Alvo invalido' });
 room.votos[userId] = alvoId;
 clearTimeout(gameTimers[req.params.code.toUpperCase() + '_vote']);
+resetInactivityTimer(req.params.code.toUpperCase());
 io.to(req.params.code.toUpperCase()).emit('vote-cast', { votanteId: userId, alvoId, forcado: false });
 room.votacaoIndex++; iniciarTurnoVotacao(req.params.code.toUpperCase());
 res.json({ ok: true });
@@ -328,6 +332,7 @@ socket.join(code); socketUsers[socket.id] = { userId, roomCode: code, asSpectato
 const room = rooms[code];
 if (room) {
 if (asSpectator) { room.spectators = (room.spectators || 0) + 1; emitSpectatorCount(code); }
+resetInactivityTimer(code);
 socket.emit('room-update', room);
 socket.emit('spectator-count', { count: room.spectators || 0 });
 if (room.status !== 'waiting') socket.emit('spectator-mode', { status: room.status, feed: room.feed || [], spectators: room.spectators || 0 });
