@@ -12,7 +12,7 @@ const io = new Server(httpServer);
 const rooms = {};
 const gameTimers = {};
 const MAX_PLAYERS = 50;
-const SALA_ENCERRAR_APOS_JOGO_MS = 60000; // 1 minuto apos jogo encerrar
+const DECISAO_SEGUNDOS = 30; // segundos para jogador decidir jogar novamente ou sair
 
 function generateCode() {
 const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -30,35 +30,20 @@ const FAKE_PLAYERS = [
 { id: 'fake_6', name: 'Felipe Nunes', photo: 'https://i.pravatar.cc/80?img=11', isHost: false },
 ];
 
-// Verifica se so restam jogadores ficticios
 function apenasJogadoresFicticios(room) {
 return room.players.filter(p => !p.id.startsWith('fake_')).length === 0;
 }
 
-// Fecha a sala e notifica todos
 function fecharSala(roomCode, motivo) {
 const room = rooms[roomCode];
 if (!room) return;
 clearTimeout(gameTimers[roomCode]);
 clearTimeout(gameTimers[roomCode + '_vote']);
-clearTimeout(gameTimers[roomCode + '_encerrar']);
+clearTimeout(gameTimers[roomCode + '_decisao']);
 io.to(roomCode).emit('sala-fechada', { motivo: motivo || 'Sala encerrada.' });
 delete rooms[roomCode];
 }
 
-// Inicia contagem regressiva de encerramento apos fim de jogo (1 minuto)
-function agendarEncerramento(roomCode) {
-const room = rooms[roomCode];
-if (!room) return;
-clearTimeout(gameTimers[roomCode + '_encerrar']);
-// Avisa jogadores sobre o encerramento iminente
-io.to(roomCode).emit('sala-encerrando', { segundos: 60 });
-gameTimers[roomCode + '_encerrar'] = setTimeout(() => {
-fecharSala(roomCode, 'Partida encerrada. Crie uma nova sala para jogar novamente!');
-}, SALA_ENCERRAR_APOS_JOGO_MS);
-}
-
-// Adiciona evento ao feed de status da sala (max 5)
 function addFeed(room, msg, tipo) {
 if (!room.feed) room.feed = [];
 room.feed.unshift({ msg, tipo, ts: Date.now() });
@@ -66,48 +51,110 @@ if (room.feed.length > 5) room.feed.length = 5;
 io.to(room.code).emit('feed-update', room.feed);
 }
 
-// Emite contagem de espectadores para a sala
 function emitSpectatorCount(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
 io.to(roomCode).emit('spectator-count', { count: room.spectators || 0 });
 }
 
+// Apos fim de jogo: inicia fase de decisao (30s para jogar novamente ou sair)
+function iniciarFaseDecisao(roomCode, resultadoFinal) {
+const room = rooms[roomCode];
+if (!room) return;
+clearTimeout(gameTimers[roomCode + '_decisao']);
+
+// Marca todos os jogadores reais como "aguardando decisao"
+room.aguardandoDecisao = new Set(
+room.players.filter(p => !p.id.startsWith('fake_')).map(p => p.id)
+);
+room.querJogarNovamente = new Set();
+room.status = 'ended';
+
+// Emite o evento de fim de jogo com a fase de decisao
+io.to(roomCode).emit('fim-de-jogo', {
+...resultadoFinal,
+segundosDecisao: DECISAO_SEGUNDOS
+});
+
+// Apos 30s, remove quem nao decidiu e reseta para waiting
+gameTimers[roomCode + '_decisao'] = setTimeout(() => {
+const r = rooms[roomCode];
+if (!r || r.status !== 'ended') return;
+
+// Remove jogadores que nao clicaram em nada (forcado = sair)
+const removidos = [];
+r.aguardandoDecisao.forEach(userId => {
+if (!r.querJogarNovamente.has(userId)) {
+removidos.push(userId);
+r.players = r.players.filter(p => p.id !== userId);
+}
+});
+
+// Emite para quem saiu
+removidos.forEach(userId => {
+io.to(roomCode).emit('jogador-saiu-pos-jogo', { userId });
+});
+
+// Limpa sets de decisao
+delete r.aguardandoDecisao;
+delete r.querJogarNovamente;
+
+// Verifica se so ficticios sobraram
+if (apenasJogadoresFicticios(r)) {
+fecharSala(roomCode, 'Todos os jogadores saíram. Sala encerrada.');
+return;
+}
+
+// Reseta sala para waiting - novo jogo pode comecar
+r.status = 'waiting';
+r.mortos = [];
+r.votos = {};
+r.votanteAtual = null;
+r.assassino = null;
+r.vitima = null;
+r.feed = [];
+r.rodada = 1;
+
+// Garante que tem um host real
+if (!r.players.find(p => p.id === r.host)) {
+const novoHost = r.players.find(p => !p.id.startsWith('fake_')) || r.players[0];
+if (novoHost) { r.host = novoHost.id; r.players.forEach(p => { p.isHost = p.id === novoHost.id; }); }
+}
+
+addFeed(r, '🔄 Nova partida disponível! Aguardando host iniciar.', 'sistema');
+io.to(roomCode).emit('sala-pronta', { room: r });
+}, DECISAO_SEGUNDOS * 1000);
+}
+
 function iniciarNovaRodada(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
-
 if (apenasJogadoresFicticios(room)) {
 fecharSala(roomCode, 'Todos os jogadores reais saíram. Sala encerrada.');
 return;
 }
-
 const vivos = room.players.filter(p => !room.mortos.includes(p.id));
 const vivosReais = vivos.filter(p => !p.id.startsWith('fake_'));
 if (vivosReais.length === 0) {
 fecharSala(roomCode, 'Todos os jogadores reais foram eliminados. Sala encerrada.');
 return;
 }
-
 if (vivos.length <= 2) {
 const cidadao = vivos.find(p => p.id !== room.assassino);
 const assassinoPlayer = vivos.find(p => p.id === room.assassino);
 if (cidadao && assassinoPlayer) {
 addFeed(room, cidadao.name + ' era um CIDADAO inocente.', 'cidadao');
-io.to(roomCode).emit('game-over-reveal', {
+iniciarFaseDecisao(roomCode, {
+tipo: 'reveal',
 cidadao: { id: cidadao.id, name: cidadao.name, photo: cidadao.photo },
 assassino: { id: assassinoPlayer.id, name: assassinoPlayer.name, photo: assassinoPlayer.photo },
-vencedor: 'assassino',
-mortos: room.mortos
+vencedor: 'assassino', mortos: room.mortos
 });
 } else {
-io.to(roomCode).emit('game-over', { vencedor: 'assassino', mortos: room.mortos });
+iniciarFaseDecisao(roomCode, { tipo: 'over', vencedor: 'assassino', mortos: room.mortos });
 }
-room.status = 'ended';
-agendarEncerramento(roomCode);
 return;
 }
-
 if (room.mortos.includes(room.assassino)) {
 room.assassino = vivos[Math.floor(Math.random() * vivos.length)].id;
 }
@@ -205,22 +252,12 @@ const eliminadoId = maisVotados[0];
 const eliminado = room.players.find(p => p.id === eliminadoId);
 const eraAssassino = eliminadoId === room.assassino;
 room.mortos.push(eliminadoId);
-const feedMsg = eraAssassino
-? '⚖️ ' + eliminado.name + ' foi eliminado — ERA O ASSASSINO!'
-: '⚖️ ' + eliminado.name + ' foi eliminado — era cidadao';
+const feedMsg = eraAssassino ? '⚖️ ' + eliminado.name + ' foi eliminado — ERA O ASSASSINO!' : '⚖️ ' + eliminado.name + ' foi eliminado — era cidadao';
 addFeed(room, feedMsg, eraAssassino ? 'assassino-eliminado' : 'cidadao-eliminado');
-io.to(roomCode).emit('vote-result', {
-empate: false,
-eliminado: { id: eliminado.id, name: eliminado.name, photo: eliminado.photo },
-era_assassino: eraAssassino,
-votos: contagem,
-feed: room.feed || []
-});
+io.to(roomCode).emit('vote-result', { empate: false, eliminado: { id: eliminado.id, name: eliminado.name, photo: eliminado.photo }, era_assassino: eraAssassino, votos: contagem, feed: room.feed || [] });
 if (eraAssassino) {
 setTimeout(() => {
-io.to(roomCode).emit('game-over', { vencedor: 'cidade', mortos: room.mortos });
-room.status = 'ended';
-agendarEncerramento(roomCode);
+iniciarFaseDecisao(roomCode, { tipo: 'over', vencedor: 'cidade', mortos: room.mortos });
 }, 5000);
 } else {
 setTimeout(() => iniciarNovaRodada(roomCode), 5000);
@@ -240,12 +277,15 @@ app.get('/auth/google/callback', passport.authenticate('google', { failureRedire
 app.get('/auth/logout', (req, res) => { req.logout(() => res.redirect('/')); });
 app.get('/api/me', (req, res) => { if (req.isAuthenticated()) res.json({ user: req.user }); else res.json({ user: null }); });
 app.get('/api/rooms', (req, res) => {
-const list = Object.values(rooms).map(r => ({
-code: r.code, players: r.players.length, spectators: r.spectators || 0,
-status: r.status, minPlayers: r.minPlayers,
-host: (r.players.find(p => p.isHost) || {}).name || 'Host'
-}));
+const list = Object.values(rooms).map(r => ({ code: r.code, players: r.players.length, spectators: r.spectators || 0, status: r.status, minPlayers: r.minPlayers, host: (r.players.find(p => p.isHost) || {}).name || 'Host' }));
 res.json({ rooms: list });
+});
+// Verificar se usuario ainda esta em alguma sala (para reentrada)
+app.get('/api/minha-sala', (req, res) => {
+if (!req.isAuthenticated()) return res.json({ room: null });
+const userId = req.user.id;
+const room = Object.values(rooms).find(r => r.players.some(p => p.id === userId));
+res.json({ room: room || null });
 });
 app.post('/api/rooms', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
@@ -269,14 +309,65 @@ if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticad
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
+// Reentrada: jogador ja estava na sala
+if (room.players.find(p => p.id === userId)) {
+return res.json({ room, asSpectator: false, reentrada: true });
+}
 if (room.status !== 'waiting' || room.players.length >= MAX_PLAYERS) {
 return res.json({ room, asSpectator: true });
 }
-if (!room.players.find(p => p.id === userId)) {
 room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
-}
 io.to(req.params.code.toUpperCase()).emit('room-update', room);
 res.json({ room, asSpectator: false });
+});
+// Jogador confirma que quer jogar novamente
+app.post('/api/rooms/:code/jogar-novamente', (req, res) => {
+if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+const room = rooms[req.params.code.toUpperCase()];
+if (!room || room.status !== 'ended') return res.status(400).json({ error: 'Sala nao esta em fase de decisao' });
+const userId = req.user.id;
+if (room.aguardandoDecisao && room.aguardandoDecisao.has(userId)) {
+room.aguardandoDecisao.delete(userId);
+room.querJogarNovamente = room.querJogarNovamente || new Set();
+room.querJogarNovamente.add(userId);
+}
+res.json({ ok: true });
+});
+// Jogador confirma que quer sair apos jogo
+app.post('/api/rooms/:code/sair-pos-jogo', (req, res) => {
+if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+const room = rooms[req.params.code.toUpperCase()];
+if (!room) return res.json({ ok: true });
+const userId = req.user.id;
+if (room.aguardandoDecisao) room.aguardandoDecisao.delete(userId);
+if (room.querJogarNovamente) room.querJogarNovamente.delete(userId);
+room.players = room.players.filter(p => p.id !== userId);
+if (apenasJogadoresFicticios(room)) {
+fecharSala(req.params.code.toUpperCase(), 'Todos os jogadores saíram. Sala encerrada.');
+} else {
+if (room.host === userId && room.players.length > 0) {
+const novoHost = room.players.find(p => !p.id.startsWith('fake_')) || room.players[0];
+if (novoHost) { room.host = novoHost.id; novoHost.isHost = true; }
+}
+io.to(req.params.code.toUpperCase()).emit('room-update', room);
+}
+res.json({ ok: true });
+});
+// Espectador vira jogador apos fim de jogo
+app.post('/api/rooms/:code/virar-jogador', (req, res) => {
+if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+const room = rooms[req.params.code.toUpperCase()];
+if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
+if (room.status !== 'ended' && room.status !== 'waiting') return res.status(400).json({ error: 'Nao e possivel agora' });
+if (room.players.length >= MAX_PLAYERS) return res.status(400).json({ error: 'Sala cheia' });
+const userId = req.user.id;
+if (!room.players.find(p => p.id === userId)) {
+room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
+if (room.querJogarNovamente) room.querJogarNovamente.add(userId);
+if (room.aguardandoDecisao) room.aguardandoDecisao.delete(userId);
+io.to(req.params.code.toUpperCase()).emit('room-update', room);
+}
+res.json({ ok: true, room });
 });
 app.delete('/api/rooms/:code/leave', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
@@ -371,15 +462,10 @@ socket.join(code);
 socketUsers[socket.id] = { userId, roomCode: code, asSpectator: !!asSpectator };
 const room = rooms[code];
 if (room) {
-if (asSpectator) {
-room.spectators = (room.spectators || 0) + 1;
-emitSpectatorCount(code);
-}
+if (asSpectator) { room.spectators = (room.spectators || 0) + 1; emitSpectatorCount(code); }
 socket.emit('room-update', room);
 socket.emit('spectator-count', { count: room.spectators || 0 });
-if (room.status !== 'waiting') {
-socket.emit('spectator-mode', { status: room.status, feed: room.feed || [], spectators: room.spectators || 0 });
-}
+if (room.status !== 'waiting') socket.emit('spectator-mode', { status: room.status, feed: room.feed || [], spectators: room.spectators || 0 });
 }
 socket.to(code).emit('peer-joined', { socketId: socket.id, userId });
 });
@@ -392,10 +478,7 @@ const info = socketUsers[socket.id];
 if (info) {
 if (info.asSpectator) {
 const room = rooms[info.roomCode];
-if (room) {
-room.spectators = Math.max(0, (room.spectators || 1) - 1);
-emitSpectatorCount(info.roomCode);
-}
+if (room) { room.spectators = Math.max(0, (room.spectators || 1) - 1); emitSpectatorCount(info.roomCode); }
 }
 socket.to(info.roomCode).emit('peer-left', { socketId: socket.id, userId: info.userId });
 delete socketUsers[socket.id];
