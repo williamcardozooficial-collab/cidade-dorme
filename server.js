@@ -12,7 +12,9 @@ const io = new Server(httpServer);
 const rooms = {};
 const gameTimers = {};
 const inactivityTimers = {};
+const replayTimers = {};
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000;
+const REPLAY_TIMEOUT = 30 * 1000;
 const MAX_PLAYERS = 50;
 
 function generateCode() {
@@ -41,7 +43,9 @@ if (!room) return;
 clearTimeout(gameTimers[roomCode]);
 clearTimeout(gameTimers[roomCode + '_vote']);
 clearTimeout(inactivityTimers[roomCode]);
+clearTimeout(replayTimers[roomCode]);
 delete inactivityTimers[roomCode];
+delete replayTimers[roomCode];
 io.to(roomCode).emit('sala-fechada', { motivo: motivo || 'Sala encerrada.' });
 delete rooms[roomCode];
 }
@@ -66,6 +70,81 @@ if (!room) return;
 io.to(roomCode).emit('spectator-count', { count: room.spectators || 0 });
 }
 
+// Inicia fase de decisao pos-jogo: 30s para todos decidirem
+function iniciarFaseDecisao(roomCode, resultadoPayload) {
+const room = rooms[roomCode];
+if (!room) return;
+room.status = 'ended';
+room.replayVotos = {}; // userId -> true (jogar) | false (sair)
+room.replaySegundos = 30;
+
+// Emite o resultado final + inicio da fase de decisao
+io.to(roomCode).emit('fim-de-jogo', {
+...resultadoPayload,
+segundosDecisao: 30
+});
+
+clearTimeout(replayTimers[roomCode]);
+replayTimers[roomCode] = setTimeout(() => {
+resolverDecisaoReplay(roomCode);
+}, REPLAY_TIMEOUT);
+}
+
+function resolverDecisaoReplay(roomCode) {
+const room = rooms[roomCode];
+if (!room || room.status !== 'ended') return;
+clearTimeout(replayTimers[roomCode]);
+
+// Jogadores reais que votaram "jogar novamente"
+const reais = room.players.filter(p => !p.id.startsWith('fake_'));
+const ficandoIds = reais.filter(p => room.replayVotos[p.id] === true).map(p => p.id);
+const saindoIds = reais.filter(p => room.replayVotos[p.id] !== true).map(p => p.id);
+
+// Notifica quem sai
+saindoIds.forEach(uid => {
+io.to(roomCode).emit('jogador-saiu-pos-jogo', { userId: uid });
+});
+
+// Filtra jogadores (remove quem saiu e ficticios)
+room.players = room.players.filter(p => ficandoIds.includes(p.id));
+
+if (room.players.length === 0) {
+fecharSala(roomCode, 'Todos os jogadores saíram da sala.');
+return;
+}
+
+if (room.players.length < room.minPlayers) {
+// Jogadores insuficientes - fecha sala
+io.to(roomCode).emit('sala-fechada', { motivo: 'Jogadores insuficientes para nova partida. Sala encerrada.' });
+delete rooms[roomCode];
+return;
+}
+
+// Reset da sala para waiting
+clearTimeout(gameTimers[roomCode]);
+clearTimeout(gameTimers[roomCode + '_vote']);
+room.status = 'waiting';
+room.mortos = [];
+room.votos = {};
+room.votanteAtual = null;
+room.assassino = null;
+room.vitima = null;
+room.rodada = 1;
+room.feed = [];
+room.replayVotos = {};
+
+// Redefine host se necessario
+if (!room.players.find(p => p.id === room.host)) {
+const novoHost = room.players[0];
+room.host = novoHost.id;
+novoHost.isHost = true;
+}
+room.players.forEach(p => { p.isHost = p.id === room.host; });
+
+resetInactivityTimer(roomCode);
+io.to(roomCode).emit('sala-pronta', { room });
+}
+
 function iniciarNovaRodada(roomCode) {
 const room = rooms[roomCode];
 if (!room) return;
@@ -78,9 +157,11 @@ const cidadao = vivos.find(p => p.id !== room.assassino);
 const assassinoPlayer = vivos.find(p => p.id === room.assassino);
 if (cidadao && assassinoPlayer) {
 addFeed(room, cidadao.name + ' era um CIDADAO inocente.', 'cidadao');
-io.to(roomCode).emit('game-over-reveal', { cidadao: { id: cidadao.id, name: cidadao.name, photo: cidadao.photo }, assassino: { id: assassinoPlayer.id, name: assassinoPlayer.name, photo: assassinoPlayer.photo }, vencedor: 'assassino', mortos: room.mortos });
-} else { io.to(roomCode).emit('game-over', { vencedor: 'assassino', mortos: room.mortos }); }
-room.status = 'ended'; return;
+iniciarFaseDecisao(roomCode, { tipo: 'reveal', cidadao: { id: cidadao.id, name: cidadao.name, photo: cidadao.photo }, assassino: { id: assassinoPlayer.id, name: assassinoPlayer.name, photo: assassinoPlayer.photo }, vencedor: 'assassino', mortos: room.mortos });
+} else {
+iniciarFaseDecisao(roomCode, { tipo: 'game-over', vencedor: 'assassino', mortos: room.mortos });
+}
+return;
 }
 if (room.mortos.includes(room.assassino)) room.assassino = vivos[Math.floor(Math.random() * vivos.length)].id;
 room.status = 'night'; room.vitima = null; room.votos = {}; room.votanteAtual = null;
@@ -166,7 +247,9 @@ room.mortos.push(eliminadoId);
 addFeed(room, eraAssassino ? eliminado.name + ' eliminado — ERA O ASSASSINO!' : eliminado.name + ' eliminado — era cidadao', eraAssassino ? 'assassino-eliminado' : 'cidadao-eliminado');
 io.to(roomCode).emit('vote-result', { empate: false, eliminado: { id: eliminado.id, name: eliminado.name, photo: eliminado.photo }, era_assassino: eraAssassino, votos: contagem, feed: room.feed || [] });
 if (eraAssassino) {
-setTimeout(() => { io.to(roomCode).emit('game-over', { vencedor: 'cidade', mortos: room.mortos }); room.status = 'ended'; }, 5000);
+setTimeout(() => {
+iniciarFaseDecisao(roomCode, { tipo: 'game-over', vencedor: 'cidade', mortos: room.mortos });
+}, 5000);
 } else {
 setTimeout(() => iniciarNovaRodada(roomCode), 5000);
 }
@@ -193,7 +276,7 @@ if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticad
 let code; do { code = generateCode(); } while (rooms[code]);
 const userId = req.user.id; const userName = req.user.displayName || 'Jogador';
 const userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
-rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }], spectators: 0, status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1, feed: [] };
+rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }], spectators: 0, status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1, feed: [], replayVotos: {} };
 resetInactivityTimer(code);
 res.json({ room: rooms[code] });
 });
@@ -229,34 +312,35 @@ if (room.players.length === 0 && room.status === 'waiting') { clearTimeout(gameT
 else { if (room.host === userId && room.players.length > 0) { const nh = room.players.find(p => !p.id.startsWith('fake_')) || room.players[0]; room.host = nh.id; nh.isHost = true; } resetInactivityTimer(req.params.code.toUpperCase()); io.to(req.params.code.toUpperCase()).emit('room-update', room); }
 res.json({ ok: true });
 });
-// Jogador opta por jogar novamente — fica na sala (status ended -> waiting via reset)
-app.post('/api/rooms/:code/rejoin', (req, res) => {
+// Jogador opta por jogar novamente
+app.post('/api/rooms/:code/jogar-novamente', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
-// Apenas garante que o jogador esta na lista
-const userId = req.user.id;
-if (!room.players.find(p => p.id === userId)) room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
-resetInactivityTimer(req.params.code.toUpperCase());
-res.json({ ok: true, room });
-});
-// Host reseta a sala para waiting apos o jogo
-app.post('/api/rooms/:code/reset', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
-const room = rooms[req.params.code.toUpperCase()];
-if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
-if (room.host !== req.user.id) return res.status(403).json({ error: 'Apenas o host pode reiniciar' });
 if (room.status !== 'ended') return res.status(400).json({ error: 'Jogo nao encerrado' });
-clearTimeout(gameTimers[req.params.code.toUpperCase()]);
-clearTimeout(gameTimers[req.params.code.toUpperCase() + '_vote']);
-// Remove ficticios, reseta estado
-room.players = room.players.filter(p => !p.id.startsWith('fake_'));
-room.status = 'waiting'; room.mortos = []; room.votos = {}; room.votanteAtual = null;
-room.assassino = null; room.vitima = null; room.rodada = 1; room.feed = [];
-room.players.forEach(p => { p.isHost = p.id === room.host; });
-resetInactivityTimer(req.params.code.toUpperCase());
-io.to(req.params.code.toUpperCase()).emit('room-reset', { room });
-res.json({ ok: true, room });
+const userId = req.user.id;
+if (!room.replayVotos) room.replayVotos = {};
+room.replayVotos[userId] = true;
+// Notificar sala quantos ja votaram
+const reais = room.players.filter(p => !p.id.startsWith('fake_'));
+const votosCount = reais.filter(p => room.replayVotos[p.id] === true).length;
+io.to(req.params.code.toUpperCase()).emit('replay-voto', { votosCount, total: reais.length, userId });
+// Verificar se todos votaram
+if (votosCount === reais.length) {
+clearTimeout(replayTimers[req.params.code.toUpperCase()]);
+resolverDecisaoReplay(req.params.code.toUpperCase());
+}
+res.json({ ok: true });
+});
+// Jogador opta por sair pos-jogo
+app.post('/api/rooms/:code/sair-pos-jogo', (req, res) => {
+if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+const room = rooms[req.params.code.toUpperCase()];
+if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
+const userId = req.user.id;
+if (!room.replayVotos) room.replayVotos = {};
+room.replayVotos[userId] = false;
+res.json({ ok: true });
 });
 app.post('/api/rooms/:code/start', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
@@ -265,7 +349,7 @@ if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.host !== req.user.id) return res.status(403).json({ error: 'Apenas o host pode iniciar' });
 if (room.players.length < room.minPlayers) return res.status(400).json({ error: 'Jogadores insuficientes' });
 if (room.status !== 'waiting') return res.status(400).json({ error: 'Jogo ja iniciado' });
-room.status = 'night'; room.mortos = []; room.votos = {}; room.votanteAtual = null; room.rodada = 1; room.feed = [];
+room.status = 'night'; room.mortos = []; room.votos = {}; room.votanteAtual = null; room.rodada = 1; room.feed = []; room.replayVotos = {};
 const idx = Math.floor(Math.random() * room.players.length);
 const assassino = room.players[idx]; room.assassino = assassino.id; room.vitima = null;
 addFeed(room, 'Jogo iniciado! Rodada 1', 'sistema');
