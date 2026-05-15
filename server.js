@@ -75,15 +75,12 @@ function iniciarFaseDecisao(roomCode, resultadoPayload) {
 const room = rooms[roomCode];
 if (!room) return;
 room.status = 'ended';
-room.replayVotos = {}; // userId -> true (jogar) | false (sair)
+room.replayVotos = {};
 room.replaySegundos = 30;
-
-// Emite o resultado final + inicio da fase de decisao
 io.to(roomCode).emit('fim-de-jogo', {
 ...resultadoPayload,
 segundosDecisao: 30
 });
-
 clearTimeout(replayTimers[roomCode]);
 replayTimers[roomCode] = setTimeout(() => {
 resolverDecisaoReplay(roomCode);
@@ -100,27 +97,22 @@ const reais = room.players.filter(p => !p.id.startsWith('fake_'));
 const ficandoIds = reais.filter(p => room.replayVotos[p.id] === true).map(p => p.id);
 const saindoIds = reais.filter(p => room.replayVotos[p.id] !== true).map(p => p.id);
 
-// Notifica quem sai
+// Notifica individualmente quem sai
 saindoIds.forEach(uid => {
 io.to(roomCode).emit('jogador-saiu-pos-jogo', { userId: uid });
 });
 
-// Filtra jogadores (remove quem saiu e ficticios)
+// Filtra jogadores: fica apenas quem votou para continuar (sem ficticios)
 room.players = room.players.filter(p => ficandoIds.includes(p.id));
 
+// Se ninguem ficou, fecha a sala
 if (room.players.length === 0) {
 fecharSala(roomCode, 'Todos os jogadores saíram da sala.');
 return;
 }
 
-if (room.players.length < room.minPlayers) {
-// Jogadores insuficientes - fecha sala
-io.to(roomCode).emit('sala-fechada', { motivo: 'Jogadores insuficientes para nova partida. Sala encerrada.' });
-delete rooms[roomCode];
-return;
-}
-
-// Reset da sala para waiting
+// Reset da sala para waiting - independente de quantos ficaram
+// O host pode adicionar mais jogadores antes de iniciar
 clearTimeout(gameTimers[roomCode]);
 clearTimeout(gameTimers[roomCode + '_vote']);
 room.status = 'waiting';
@@ -132,6 +124,7 @@ room.vitima = null;
 room.rodada = 1;
 room.feed = [];
 room.replayVotos = {};
+room.spectators = 0;
 
 // Redefine host se necessario
 if (!room.players.find(p => p.id === room.host)) {
@@ -142,6 +135,7 @@ novoHost.isHost = true;
 room.players.forEach(p => { p.isHost = p.id === room.host; });
 
 resetInactivityTimer(roomCode);
+// Envia sala-pronta para TODOS na sala (inclusive quem esta vendo)
 io.to(roomCode).emit('sala-pronta', { room });
 }
 
@@ -321,11 +315,10 @@ if (room.status !== 'ended') return res.status(400).json({ error: 'Jogo nao ence
 const userId = req.user.id;
 if (!room.replayVotos) room.replayVotos = {};
 room.replayVotos[userId] = true;
-// Notificar sala quantos ja votaram
 const reais = room.players.filter(p => !p.id.startsWith('fake_'));
 const votosCount = reais.filter(p => room.replayVotos[p.id] === true).length;
 io.to(req.params.code.toUpperCase()).emit('replay-voto', { votosCount, total: reais.length, userId });
-// Verificar se todos votaram
+// Se todos os jogadores reais ja votaram, resolver imediatamente
 if (votosCount === reais.length) {
 clearTimeout(replayTimers[req.params.code.toUpperCase()]);
 resolverDecisaoReplay(req.params.code.toUpperCase());
