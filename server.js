@@ -10,6 +10,8 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
 const rooms = {};
+const inactivityTimers = {};
+const INACTIVITY_TIMEOUT = 10 * 60 * 1000;
 const gameTimers = {};
 const MAX_PLAYERS = 50;
 
@@ -38,10 +40,22 @@ const room = rooms[roomCode];
 if (!room) return;
 clearTimeout(gameTimers[roomCode]);
 clearTimeout(gameTimers[roomCode + '_vote']);
+  clearTimeout(inactivityTimers[roomCode]);
+  delete inactivityTimers[roomCode];
 io.to(roomCode).emit('sala-fechada', { motivo: motivo || 'Sala encerrada.' });
 delete rooms[roomCode];
 }
 
+function resetInactivityTimer(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return;
+  if (inactivityTimers[roomCode]) clearTimeout(inactivityTimers[roomCode]);
+  inactivityTimers[roomCode] = setTimeout(() => {
+    const r = rooms[roomCode];
+    if (!r) return;
+    fecharSala(roomCode, 'Sala encerrada por inatividade (10 minutos sem atividade).');
+  }, INACTIVITY_TIMEOUT);
+}
 function addFeed(room, msg, tipo) {
 if (!room.feed) room.feed = [];
 room.feed.unshift({ msg, tipo, ts: Date.now() });
@@ -183,13 +197,13 @@ let code; do { code = generateCode(); } while (rooms[code]);
 const userId = req.user.id; const userName = req.user.displayName || 'Jogador';
 const userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
 rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true }], spectators: 0, status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1, feed: [] };
+resetInactivityTimer(code);
 res.json({ room: rooms[code] });
 });
 app.post('/api/rooms/:code/add-fake-players', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
-if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
-if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
+gameTimers\[req\.params\.code\.toUpperCase\(\)\] = setTimeoutif (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
 for (const fp of FAKE_PLAYERS) { if (!room.players.find(p => p.id === fp.id)) room.players.push({ ...fp }); }
 io.to(req.params.code.toUpperCase()).emit('room-update', room); res.json({ room });
 });
@@ -202,7 +216,8 @@ const userId = req.user.id;
 if (room.status !== 'waiting' || room.players.length >= MAX_PLAYERS) return res.json({ room, asSpectator: true });
 if (!room.players.find(p => p.id === userId)) room.players.push({ id: userId, name: req.user.displayName || 'Jogador', photo: (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '', isHost: false });
 io.to(req.params.code.toUpperCase()).emit('room-update', room);
-res.json({ room, asSpectator: false });
+resetInactivityTimer(req.params.code.toUpperCase());
+  res.json({ room, asSpectator: false });
 });
 app.delete('/api/rooms/:code/leave', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
