@@ -603,6 +603,14 @@ socket.on('webrtc-offer', ({ to, offer }) => io.to(to).emit('webrtc-offer', { fr
 socket.on('webrtc-answer', ({ to, answer }) => io.to(to).emit('webrtc-answer', { from: socket.id, answer }));
 socket.on('webrtc-ice', ({ to, candidate }) => io.to(to).emit('webrtc-ice', { from: socket.id, candidate }));
 socket.on('mic-status', ({ code, userId, muted }) => { socket.to(code).emit('mic-status', { userId, muted }); });
+socket.on('chat-mensagem', ({ code, texto, nomeUsuario, isEspectador }) => {
+const room = rooms[code];
+if (!room) return;
+const textoLimitado = (texto || '').slice(0, 50);
+if (!textoLimitado.trim()) return;
+const msg = { nomeUsuario: nomeUsuario || 'Jogador', texto: textoLimitado, isEspectador: !!isEspectador, ts: Date.now() };
+io.to(code).emit('chat-mensagem', msg);
+});
 socket.on('disconnect', () => {
 const info = socketUsers[socket.id];
 if (info) {
