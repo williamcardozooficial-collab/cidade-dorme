@@ -420,115 +420,93 @@ socket.on('sala-fechada', (data) => { if (countdownInterval) clearInterval(count
 let chatMinimizado = false;
 let chatAberto = false;
 
+// ===== CHAT: ICONE + PAINEL + NOTIFICACOES =====
+
 function mostrarChat() {
-  const widget = document.getElementById('chat-widget');
-  if (widget) {
-    widget.style.display = 'block';
-    chatAberto = true;
-    chatMinimizado = false;
-    widget.classList.remove('minimizado');
-    if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
-    window._chatAutoMinTimer = setTimeout(() => {
-      const w = document.getElementById('chat-widget');
-      if (w) { w.classList.add('minimizado'); chatMinimizado = true; }
-    }, 10000);
-  }
+  const icone = document.getElementById('chat-icone');
+  if (icone) icone.style.display = 'flex';
 }
 
 function esconderChat() {
-  const widget = document.getElementById('chat-widget');
-  if (widget) { widget.style.display = 'none'; chatAberto = false; }
-  limparMensagensChat();
+  const icone = document.getElementById('chat-icone');
+  const painel = document.getElementById('chat-painel');
+  if (icone) icone.style.display = 'none';
+  if (painel) painel.style.display = 'none';
 }
+
 function limparMensagensChat() {
-  const msgs = document.getElementById('chat-mensagens');
-  if (msgs) msgs.innerHTML = '';
+  const notifs = document.getElementById('chat-notifs');
+  if (notifs) notifs.innerHTML = '';
+}
+
+function mostrarNotifChat(msg) {
+  const notifs = document.getElementById('chat-notifs');
+  if (!notifs) return;
+  const div = document.createElement('div');
+  div.className = 'chat-notif';
+  const nome = document.createElement('span');
+  nome.className = 'chat-notif-nome';
+  nome.textContent = (msg.isEspectador ? '👁 ' : '') + msg.nomeUsuario + ':';
+  const texto = document.createElement('span');
+  texto.className = 'chat-notif-texto';
+  texto.textContent = msg.texto;
+  div.appendChild(nome);
+  div.appendChild(texto);
+  notifs.appendChild(div);
+  setTimeout(() => {
+    div.classList.add('saindo');
+    setTimeout(() => { if (div.parentNode) div.parentNode.removeChild(div); }, 300);
+  }, 5000);
 }
 
 function iniciarChat() {
-  const toggle = document.getElementById('chat-toggle');
+  const icone = document.getElementById('chat-icone');
+  const painel = document.getElementById('chat-painel');
   const input = document.getElementById('chat-input');
-  const enviar = document.getElementById('chat-enviar');
+  const btn = document.getElementById('chat-enviar');
   const counter = document.getElementById('chat-char-count');
-  const widget = document.getElementById('chat-widget');
-
-  if (toggle) {
-    toggle.addEventListener('click', () => {
-      chatMinimizado = !chatMinimizado;
-      if (widget) widget.classList.toggle('minimizado', chatMinimizado);
-      if (!chatMinimizado) {
-        // Usuario abriu manualmente - cancelar timer e iniciar novo de 10s
-        ocultarUnread();
-        if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
-        window._chatAutoMinTimer = setTimeout(() => {
-          const w = document.getElementById('chat-widget');
-          if (w) { w.classList.add('minimizado'); chatMinimizado = true; }
-        }, 10000);
-      } else {
-        // Usuario fechou manualmente - cancelar timer
-        if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
-      }
-    });
-  }
-  if (input) {
+  if (!icone || !painel || !input || !btn) return;
+  icone.addEventListener('click', () => {
+    const aberto = painel.style.display !== 'none';
+    painel.style.display = aberto ? 'none' : 'block';
+    if (!aberto) {
+      input.value = '';
+      if (counter) counter.textContent = '0/50';
+      input.focus();
+    }
+  });
+  if (counter) {
     input.addEventListener('input', () => {
       const len = input.value.length;
-      if (counter) {
-        counter.textContent = len;
-        const wrap = counter.parentElement;
-        wrap.className = 'chat-counter' + (len >= 50 ? ' cheio' : len >= 40 ? ' quase' : '');
-      }
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') enviarMensagemChat();
+      counter.textContent = len + '/50';
+      counter.className = 'chat-painel-counter' + (len >= 50 ? ' cheio' : len >= 40 ? ' quase' : '');
     });
   }
-  if (enviar) enviar.addEventListener('click', enviarMensagemChat);
+  btn.addEventListener('click', enviarMensagemChat);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') enviarMensagemChat(); });
 }
 
 function enviarMensagemChat() {
   if (!currentRoom || !currentUser) return;
   const input = document.getElementById('chat-input');
+  const painel = document.getElementById('chat-painel');
   if (!input) return;
   const texto = input.value.trim().slice(0, 50);
   if (!texto) return;
-  const nomeUsuario = currentUser.displayName || currentUser.name || 'Jogador';
-  socket.emit('chat-mensagem', { code: currentRoom.code, texto, nomeUsuario, isEspectador: isSpectator });
+  socket.emit('chat-mensagem', {
+    code: currentRoom.code,
+    texto,
+    nomeUsuario: currentUser.displayName || currentUser.name,
+    isEspectador: isEspectador || false
+  });
   input.value = '';
   const counter = document.getElementById('chat-char-count');
-  if (counter) { counter.textContent = '0'; counter.parentElement.className = 'chat-counter'; }
-}
-
-function adicionarMensagemChat(msg) {
-  const container = document.getElementById('chat-mensagens');
-  if (!container) return;
-  const div = document.createElement('div');
-  const ehMinha = currentUser && msg.nomeUsuario === (currentUser.displayName || currentUser.name || 'Jogador');
-  div.className = 'chat-msg' + (ehMinha ? ' minha' : '') + (msg.isEspectador ? ' espectador' : '');
-  const nomeEl = document.createElement('div');
-  nomeEl.className = 'chat-msg-nome';
-  nomeEl.textContent = (msg.isEspectador ? '👁️ ' : '') + msg.nomeUsuario;
-  const textoEl = document.createElement('div');
-  textoEl.className = 'chat-msg-texto';
-  textoEl.textContent = msg.texto;
-  div.appendChild(nomeEl);
-  div.appendChild(textoEl);
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
-  if (chatMinimizado) mostrarUnread();
-}
-
-function mostrarUnread() {
-  const badge = document.getElementById('chat-unread');
-  if (badge) badge.style.display = 'inline';
-}
-function ocultarUnread() {
-  const badge = document.getElementById('chat-unread');
-  if (badge) badge.style.display = 'none';
+  if (counter) counter.textContent = '0/50';
+  if (painel) painel.style.display = 'none';
 }
 
 socket.on('chat-mensagem', (msg) => {
-  adicionarMensagemChat(msg);
+  mostrarNotifChat(msg);
 });
 
 // Inicializar chat ao carregar
