@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
 <!-- LOGIN -->
 <div id="login-screen" class="screen">
 <div class="bg-stars"></div>
@@ -21,7 +20,6 @@ Entrar com Google
 </button>
 </div>
 </div>
-
 <!-- HOME -->
 <div id="home-screen" class="screen">
 <header>
@@ -40,7 +38,6 @@ Entrar com Google
 </div>
 </main>
 </div>
-
 <!-- ENTRAR EM SALA -->
 <div id="join-screen" class="screen">
 <header>
@@ -56,7 +53,6 @@ Entrar com Google
 <div id="salas-lista" class="salas-lista"><div class="salas-loading">Carregando salas...</div></div>
 </main>
 </div>
-
 <!-- SALA -->
 <div id="room-screen" class="screen">
 <header>
@@ -83,10 +79,14 @@ Entrar com Google
 <button id="btn-start" class="btn-start" style="display:none">Iniciar Jogo</button>
 </main>
 </div>
-
-<!-- NOITE -->
+<!-- NOITE (fase de habilidades) -->
 <div id="game-screen" class="screen">
 <div class="game-feed" id="game-feed-night"></div>
+<!-- Popup resultado Detetive -->
+<div id="detetive-popup" class="detetive-popup" style="display:none">
+<div id="detetive-popup-icon" class="detetive-popup-icon">✅</div>
+<div id="detetive-popup-msg" class="detetive-popup-msg"></div>
+</div>
 <main class="game-main">
 <div class="game-stars"></div>
 <div class="game-content">
@@ -97,9 +97,15 @@ Entrar com Google
 <div id="game-countdown" class="countdown-num">30s</div>
 <div class="countdown-track"><div id="countdown-bar" class="countdown-bar" style="width:100%"></div></div>
 </div>
+<!-- Assassino: escolher vitima -->
 <div id="vitimas-section" style="display:none">
-<p class="vitimas-title">Escolha sua vitima:</p>
+<p class="vitimas-title">🔪 Escolha sua vitima:</p>
 <div id="vitimas-list" class="vitimas-list"></div>
+</div>
+<!-- Especiais: Anjo, Detetive, Soldado -->
+<div id="acoes-especiais-section" style="display:none">
+<p id="acao-especial-titulo" class="vitimas-title"></p>
+<div id="acoes-especiais-list" class="vitimas-list"></div>
 </div>
 <div id="kill-result-box" class="kill-result-box" style="display:none">
 <div id="kill-icon" class="kill-icon">☠️</div>
@@ -110,7 +116,6 @@ Entrar com Google
 </div>
 </main>
 </div>
-
 <!-- VOTACAO -->
 <div id="vote-screen" class="screen">
 <div class="game-feed" id="game-feed-vote"></div>
@@ -134,8 +139,7 @@ Entrar com Google
 <div id="vote-alvos" class="vitimas-list"></div>
 </main>
 </div>
-
-<!-- RESULTADO (intermediario entre rodadas) -->
+<!-- RESULTADO intermediario -->
 <div id="result-screen" class="screen">
 <div class="game-feed" id="game-feed-result"></div>
 <main class="result-main">
@@ -148,7 +152,6 @@ Entrar com Google
 </div>
 </main>
 </div>
-
 <!-- DECISAO POS-JOGO -->
 <div id="decision-screen" class="screen">
 <main class="decision-main">
@@ -173,31 +176,22 @@ Entrar com Google
 </div>
 </main>
 </div>
-
 <!-- ESPECTADOR -->
 <div id="spectator-screen" class="screen">
 <header>
 <div class="header-left">👁️ Modo Espectador</div>
-<div class="header-right">
-<button id="btn-sair-spectator" class="btn-sair">← Sair</button>
-</div>
+<div class="header-right"><button id="btn-sair-spectator" class="btn-sair">← Sair</button></div>
 </header>
 <main class="spectator-main">
 <div class="game-feed spectator-count-badge" id="game-feed-spec"></div>
 <div class="spectator-content">
 <div class="spectator-eye">👁️</div>
 <div id="spectator-status" class="spectator-status">Aguardando jogo iniciar...</div>
-<div class="spectator-info">
-<p>Você está assistindo como espectador.</p>
-<p>Apenas observe — você não pode participar desta partida.</p>
-</div>
-<div class="spectator-counts">
-<span class="spectator-count-badge" id="spectator-count-val-badge">👁️ 0 espectadores</span>
-</div>
+<div class="spectator-info"><p>Você está assistindo como espectador.</p><p>Apenas observe.</p></div>
+<div class="spectator-counts"><span class="spectator-count-badge" id="spectator-count-val-badge">👁️ 0 espectadores</span></div>
 </div>
 </main>
 </div>
-
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>
