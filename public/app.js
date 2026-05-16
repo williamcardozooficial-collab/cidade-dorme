@@ -208,15 +208,25 @@ mostrarResultadoDetetive({ eBom: data.eBom, alvo: { name: alvoName } });
 });
 
 function mostrarResultadoDetetive(data) {
-const popup = document.getElementById('detetive-popup');
-if (!popup) return;
-const icon = document.getElementById('detetive-popup-icon');
-const msg = document.getElementById('detetive-popup-msg');
+let popup = document.getElementById('detetive-result-global');
+if (!popup) {
+popup = document.createElement('div');
+popup.id = 'detetive-result-global';
+popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 40px;border-radius:16px;text-align:center;min-width:220px;box-shadow:0 4px 32px rgba(0,0,0,0.7);';
+document.body.appendChild(popup);
+}
 const alvoName = data.alvo ? data.alvo.name : 'Jogador';
-if (data.eBom) { icon.textContent = '✅'; msg.textContent = alvoName + ' e BOA PESSOA'; popup.className = 'detetive-popup popup-bom'; }
-else { icon.textContent = '❌'; msg.textContent = alvoName + ' e RUIM (ASSASSINO!)'; popup.className = 'detetive-popup popup-ruim'; }
+if (data.eBom) {
+popup.style.background = 'rgba(10,60,30,0.97)';
+popup.style.border = '2px solid #4cff80';
+popup.innerHTML = '<div style="font-size:2.5rem">✅</div><div style="font-size:1.1rem;font-weight:700;color:#4cff80">' + alvoName + '</div><div style="font-size:0.9rem;color:#b8ffcc;margin-top:4px">BOA PESSOA</div>';
+} else {
+popup.style.background = 'rgba(70,5,5,0.97)';
+popup.style.border = '2px solid #ff4040';
+popup.innerHTML = '<div style="font-size:2.5rem">❌</div><div style="font-size:1.1rem;font-weight:700;color:#ff6060">' + alvoName + '</div><div style="font-size:0.9rem;color:#ffbbbb;margin-top:4px">ASSASSINO!</div>';
+}
 popup.style.display = 'flex';
-setTimeout(() => { popup.style.display = 'none'; }, 5000);
+setTimeout(() => { popup.style.display = 'none'; }, 6000);
 }
 
 socket.on('assassino-falhou', (data) => {
