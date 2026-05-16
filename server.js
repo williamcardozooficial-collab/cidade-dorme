@@ -1,4 +1,4 @@
-// deploy trigger v10
+// deploy trigger v11
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -136,6 +136,16 @@ if (alvoSoldado && !room.mortos.includes(alvoSoldado.id)) {
 room.mortos.push(alvoSoldado.id);
 mortosDaNoite.push({ jogador: alvoSoldado, tipo: 'soldado' });
 addFeed(room, 'Soldado eliminou ' + alvoSoldado.name + ' durante a noite!', 'kill');
+if (alvoSoldado.id === room.assassino) {
+addFeed(room, 'O Soldado eliminou o ASSASSINO! Cidade vence!', 'assassino-eliminado');
+room.acaoAnjo = null; room.acaoSoldado = null; room.acaoNoitesProntas = {};
+const mortosFinalSoldado = mortosDaNoite.map(m => ({ vitima: m.jogador, tipo: m.tipo, assassinoId: room.assassino }));
+io.to(roomCode).emit('kill-result', { mortos: mortosFinalSoldado, forcado: false, assassinoId: room.assassino });
+setTimeout(() => {
+iniciarFaseDecisao(roomCode, { tipo: 'game-over', vencedor: 'cidade', mortos: room.mortos });
+}, 5000);
+return;
+}
 }
 }
 // Verificar se anjo salvou a vitima do assassino
@@ -511,9 +521,7 @@ room.acaoNoitesProntas['assassino'] = true;
 resetInactivityTimer(req.params.code.toUpperCase());
 addFeed(room, 'Assassino escolheu sua vitima...', 'sistema');
 io.to(req.params.code.toUpperCase()).emit('assassino-escolheu', { ok: true });
-// Checar se pode resolver ja
-const todosDecidiram = verificarSeResolvNoite(room);
-if (todosDecidiram) resolverNoite(req.params.code.toUpperCase());
+// Nao resolver imediatamente: anjo ainda tem os 30s para agir
 res.json({ ok: true });
 });
 // Verifica se todos os personagens especiais ja decidiram (ou nao tem mais tempo)
