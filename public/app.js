@@ -422,8 +422,19 @@ let chatAberto = false;
 
 function mostrarChat() {
   const widget = document.getElementById('chat-widget');
-  if (widget) { widget.style.display = 'block'; chatAberto = true; }
+  if (widget) {
+    widget.style.display = 'block';
+    chatAberto = true;
+    chatMinimizado = false;
+    widget.classList.remove('minimizado');
+    if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
+    window._chatAutoMinTimer = setTimeout(() => {
+      const w = document.getElementById('chat-widget');
+      if (w) { w.classList.add('minimizado'); chatMinimizado = true; }
+    }, 10000);
+  }
 }
+
 function esconderChat() {
   const widget = document.getElementById('chat-widget');
   if (widget) { widget.style.display = 'none'; chatAberto = false; }
@@ -445,7 +456,18 @@ function iniciarChat() {
     toggle.addEventListener('click', () => {
       chatMinimizado = !chatMinimizado;
       if (widget) widget.classList.toggle('minimizado', chatMinimizado);
-      if (!chatMinimizado) ocultarUnread();
+      if (!chatMinimizado) {
+        // Usuario abriu manualmente - cancelar timer e iniciar novo de 10s
+        ocultarUnread();
+        if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
+        window._chatAutoMinTimer = setTimeout(() => {
+          const w = document.getElementById('chat-widget');
+          if (w) { w.classList.add('minimizado'); chatMinimizado = true; }
+        }, 10000);
+      } else {
+        // Usuario fechou manualmente - cancelar timer
+        if (window._chatAutoMinTimer) clearTimeout(window._chatAutoMinTimer);
+      }
     });
   }
   if (input) {
