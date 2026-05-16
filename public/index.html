@@ -193,22 +193,17 @@ Entrar com Google
 </main>
 </div>
 
-<!-- CHAT WIDGET -->
-<div id="chat-widget" class="chat-widget" style="display:none">
-  <div id="chat-header" class="chat-header">
-    <span class="chat-title">💬 Chat da Sala</span>
-    <span id="chat-unread" class="chat-unread" style="display:none">0</span>
-    <button id="chat-toggle" class="chat-toggle">▼</button>
+<!-- CHAT: icone flutuante + painel input + notificacoes -->
+<div id="chat-icone" class="chat-icone" style="display:none" title="Abrir chat">💬</div>
+<div id="chat-painel" class="chat-painel" style="display:none">
+  <div class="chat-painel-row">
+    <input id="chat-input" type="text" maxlength="50" placeholder="Mensagem... (max 50)" class="chat-painel-input" autocomplete="off">
+    <button id="chat-enviar" class="chat-painel-btn">➤</button>
   </div>
-  <div id="chat-body" class="chat-body">
-    <div id="chat-mensagens" class="chat-mensagens"></div>
-    <div class="chat-input-row">
-      <input id="chat-input" type="text" maxlength="50" placeholder="Mensagem (max 50 chars)" class="chat-input-field" autocomplete="off">
-      <button id="chat-enviar" class="chat-enviar-btn">➤</button>
-    </div>
-    <div id="chat-char-count" class="chat-counter">0/50</div>
-  </div>
+  <div id="chat-char-count" class="chat-painel-counter">0/50</div>
 </div>
+<div id="chat-notifs" class="chat-notifs"></div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>
