@@ -211,12 +211,12 @@ else { const alvoBt = document.querySelector('[data-id="' + alvoId + '"]'); if (
 
 // Resultado do detetive (privado — so aparece para o detetive)
 socket.on('resultado-detetive', (data) => {
-if (!currentUser || data.detetiveId !== currentUser.id) return;
+if (!currentUser || data.investigadorId !== currentUser.id) return;
 const overlay = document.getElementById('game-overlay-text');
-if (data.eBom) { if (overlay) overlay.textContent = '✅ ' + data.alvo.name + ' e BOA PESSOA (Cidadao/Especial)'; }
-else { if (overlay) overlay.textContent = '❌ ' + data.alvo.name + ' e RUIM (Assassino)'; }
-// Mostrar popup visual
-mostrarResultadoDetetive(data);
+const alvoName = data.alvoName || (data.alvo && data.alvo.name) || 'Jogador';
+if (data.eBom) { if (overlay) overlay.textContent = '✅ ' + alvoName + ' e BOA PESSOA (Cidadao/Especial)'; }
+else { if (overlay) overlay.textContent = '❌ ' + alvoName + ' e RUIM (Assassino)'; }
+mostrarResultadoDetetive({ eBom: data.eBom, alvo: { name: alvoName } });
 });
 
 function mostrarResultadoDetetive(data) {
@@ -224,13 +224,13 @@ const popup = document.getElementById('detetive-popup');
 if (!popup) return;
 const icon = document.getElementById('detetive-popup-icon');
 const msg = document.getElementById('detetive-popup-msg');
-if (data.eBom) { icon.textContent = '✅'; msg.textContent = data.alvo.name + ' e BOA PESSOA'; popup.className = 'detetive-popup popup-bom'; }
-else { icon.textContent = '❌'; msg.textContent = data.alvo.name + ' e RUIM (ASSASSINO!)'; popup.className = 'detetive-popup popup-ruim'; }
+const alvoName = data.alvo ? data.alvo.name : 'Jogador';
+if (data.eBom) { icon.textContent = '✅'; msg.textContent = alvoName + ' e BOA PESSOA'; popup.className = 'detetive-popup popup-bom'; }
+else { icon.textContent = '❌'; msg.textContent = alvoName + ' e RUIM (ASSASSINO!)'; popup.className = 'detetive-popup popup-ruim'; }
 popup.style.display = 'flex';
 setTimeout(() => { popup.style.display = 'none'; }, 5000);
 }
 
-// Assassino falhou (anjo salvou)
 socket.on('assassino-falhou', (data) => {
 if (isSpectator) return;
 const box = document.getElementById('kill-result-box');
@@ -256,37 +256,37 @@ tick(); countdownInterval = setInterval(tick, 1000);
 }
 
 socket.on('kill-result', (data) => {
-if (isSpectator) { const statusEl = document.getElementById('spectator-status'); if (statusEl) statusEl.textContent = data.assassinoFalhou ? '⚠️ Assassino falhou!' : '🔪 Alguem foi eliminado!'; return; }
+if (isSpectator) { const statusEl = document.getElementById('spectator-status'); if (statusEl) statusEl.textContent = '🔪 Alguem foi eliminado!'; return; }
 if (countdownInterval) clearInterval(countdownInterval);
 const box = document.getElementById('kill-result-box');
 const countdown = document.getElementById('game-countdown'); const bar = document.getElementById('countdown-bar');
 if (countdown) countdown.textContent = '0s'; if (bar) bar.style.width = '0%';
-// Esconder acoes
 document.getElementById('vitimas-section').style.display = 'none';
 document.getElementById('acoes-especiais-section').style.display = 'none';
-if (data.assassinoFalhou && (!data.mortos || data.mortos.length === 0)) return; // ja mostrado pelo evento assassino-falhou
-box.style.display = 'flex';
+// Normalizar formato: aceitar tanto data.mortos (novo) quanto data.vitima (legado)
+const listaMortos = data.mortos || (data.vitima ? [{ vitima: data.vitima, tipo: 'assassino' }] : []);
+if (listaMortos.length === 0 && !data.assassinoFalhou) {
+  if (box) { box.style.display = 'flex'; document.getElementById('kill-icon').textContent = '🌙'; document.getElementById('kill-msg').textContent = 'A noite passou...'; document.getElementById('kill-sub').textContent = 'Ninguem morreu esta noite.'; }
+  return;
+}
+if (box) box.style.display = 'flex';
 const icon = document.getElementById('kill-icon'); const msg = document.getElementById('kill-msg'); const sub = document.getElementById('kill-sub');
-if (data.assassinoFalhou) { icon.textContent = '⚠️'; msg.textContent = 'O assassino falhou!'; sub.textContent = 'Alguem foi protegido pelo Anjo.'; }
-else if (!data.vitima && (!data.mortos || data.mortos.length === 0)) { icon.textContent = '🌙'; msg.textContent = 'A noite passou...'; sub.textContent = 'Ninguem morreu esta noite.'; }
-else {
-const primeiroMorto = data.vitima || (data.mortos && data.mortos[0]);
-if (primeiroMorto) {
-const isVitima = currentUser && primeiroMorto.id === currentUser.id;
-if (isVitima) myStatus = 'dead';
-const causa = primeiroMorto.causa === 'soldado' ? 'Soldado eliminou' : 'Assassino matou';
-icon.textContent = primeiroMorto.causa === 'soldado' ? '🦖' : '☠️';
-msg.textContent = primeiroMorto.name + ' foi eliminado!';
-sub.textContent = causa + ' ' + primeiroMorto.name + '.';
-}
-// Mortos adicionais
-if (data.mortos && data.mortos.length > 1) {
-sub.textContent += ' (e mais ' + (data.mortos.length - 1) + ' eliminado' + (data.mortos.length > 2 ? 's' : '') + ')';
-data.mortos.forEach(m => { if (currentUser && m.id === currentUser.id) myStatus = 'dead'; });
-}
+if (listaMortos.length > 0) {
+  const primeiro = listaMortos[0];
+  const jogador = primeiro.vitima || primeiro;
+  const tipo = primeiro.tipo || 'assassino';
+  if (currentUser && jogador.id === currentUser.id) myStatus = 'dead';
+  icon.textContent = tipo === 'soldado' ? '🪖' : '☠️';
+  msg.textContent = jogador.name + ' foi eliminado!';
+  sub.textContent = (tipo === 'soldado' ? 'O Soldado eliminou ' : 'O Assassino matou ') + jogador.name + '.';
+  if (listaMortos.length > 1) {
+    sub.textContent += ' E mais ' + (listaMortos.length - 1) + ' eliminado' + (listaMortos.length > 2 ? 's' : '') + '!';
+    listaMortos.forEach(m => { const j = m.vitima || m; if (currentUser && j.id === currentUser.id) myStatus = 'dead'; });
+  }
+} else if (data.assassinoFalhou) {
+  icon.textContent = '⚠️'; msg.textContent = 'O assassino falhou!'; sub.textContent = 'Alguem foi protegido pelo Anjo.';
 }
 });
-
 socket.on('vote-turn', async (data) => {
 if (isSpectator) { const statusEl = document.getElementById('spectator-status'); if (statusEl) statusEl.textContent = '☀️ Votando: ' + data.votante.name + ' (' + data.turnoAtual + '/' + data.totalVotantes + ')'; if (data.feed) renderFeed(data.feed); return; }
 hideAll(); document.getElementById('vote-screen').classList.add('active');
@@ -432,8 +432,8 @@ const btnSairPosJogo = document.getElementById('btn-sair-pos-jogo'); if (btnSair
 const btnReplay = document.getElementById('btn-replay'); if (btnReplay) { btnReplay.addEventListener('click', () => jogarNovamente()); }
 const btnSairSpec = document.getElementById('btn-sair-spectator'); if (btnSairSpec) { btnSairSpec.addEventListener('click', () => { currentRoom = null; isSpectator = false; showHome(currentUser); }); }
 socket.on('room-update', (room) => { if (currentRoom && room.code === currentRoom.code) { currentRoom = room; if (!isSpectator) renderRoom(room); } });
-socket.on('game-night', (data) => { showGame(data); });
-socket.on('room-reset', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); forceMute(); myStatus = 'alive'; isSpectator = false; currentRoom = data.room; showRoom(data.room); });
+socket.on('socket.on('game-night-player', (data) => { if (currentUser && data.playerId === currentUser.id) { showGame({ ...data, papelId: data.papel, papelInfo: data.papelInfo, segundos: data.segundos, vitimas: data.vitimas || [], feed: data.feed }); } });
+socket.on('game-night', (data) => { if (isSpectator) { showSpectatorView({ status: 'night', feed: data.feed || [], spectators: 0 }); } });'room-reset', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); forceMute(); myStatus = 'alive'; isSpectator = false; currentRoom = data.room; showRoom(data.room); });
 socket.on('sala-pronta', (data) => { if (isSpectator) return; if (decisionInterval) clearInterval(decisionInterval); currentRoom = data.room; myStatus = 'alive'; meuPapel = 'cidadao'; showRoom(data.room); });
 socket.on('jogador-saiu-pos-jogo', (data) => { if (currentUser && data.userId === currentUser.id) { if (decisionInterval) clearInterval(decisionInterval); currentRoom = null; isSpectator = false; showHome(currentUser); } });
 socket.on('sala-fechada', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); pararAudio(); currentRoom = null; isSpectator = false; myStatus = 'alive'; alert(data.motivo || 'A sala foi encerrada.'); if (currentUser) showHome(currentUser); else showLogin(); });
