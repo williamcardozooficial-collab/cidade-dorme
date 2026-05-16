@@ -62,10 +62,19 @@ socket.on('webrtc-answer', async ({ from, answer }) => { const pc = peers[from];
 socket.on('webrtc-ice', async ({ from, candidate }) => { const pc = peers[from]; if (pc && candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {} } });
 socket.on('peer-left', ({ socketId }) => removerPeer(socketId));
 socket.on('mic-status', ({ userId, muted }) => { const indicator = document.querySelector('[data-userid="' + userId + '"] .mic-indicator'); if (indicator) { indicator.textContent = muted ? '🔇' : '🎙️'; indicator.classList.toggle('falando', !muted); } });
-function renderFeed(feed) { document.querySelectorAll('.game-feed').forEach(el => { if (!el || !feed) return; el.innerHTML = ''; feed.forEach(item => { const div = document.createElement('div'); div.className = 'feed-item feed-' + (item.tipo || 'sistema'); div.textContent = item.msg; el.appendChild(div); }); }); }
-socket.on('feed-update', (feed) => { renderFeed(feed); });
-socket.on('spectator-count', (data) => { document.querySelectorAll('.spectator-count-badge').forEach(el => { el.textContent = '👁️ ' + data.count + ' espectador' + (data.count === 1 ? '' : 'es'); }); });
-socket.on('spectator-mode', (data) => { showSpectatorView(data); });
+function renderFeed(feed) {
+  document.querySelectorAll('.game-feed').forEach(el => {
+    if (!el || !feed) return;
+    el.innerHTML = '';
+    if (!feed.length) return;
+    // Mostrar apenas o item mais recente
+    const item = feed[0];
+    const div = document.createElement('div');
+    div.className = 'feed-item feed-' + (item.tipo || 'info');
+    div.textContent = item.msg || '';
+    el.appendChild(div);
+  });
+}
 function showSpectatorView(data) { hideAll(); document.getElementById('spectator-screen').classList.add('active'); if (data.feed) renderFeed(data.feed); const statusEl = document.getElementById('spectator-status'); const statusMap = { night: '🌙 Fase da Noite', voting: '☀️ Fase de Votacao', result: '📋 Resultado', ended: '🏆 Jogo Encerrado' }; if (statusEl) statusEl.textContent = statusMap[data.status] || 'Aguardando...'; }
 
 const ALL_SCREENS = ['login-screen','home-screen','join-screen','room-screen','game-screen','vote-screen','result-screen','decision-screen','spectator-screen'];
