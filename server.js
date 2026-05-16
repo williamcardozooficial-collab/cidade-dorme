@@ -1,4 +1,4 @@
-// deploy trigger v8
+// deploy trigger v9
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -317,7 +317,13 @@ if (apenasJogadoresFicticios(room)) { fecharSala(roomCode, 'Todos os jogadores r
 const vivos = room.players.filter(p => !room.mortos.includes(p.id));
 if (vivos.length === 0) return;
 room.status = 'voting'; room.votos = {};
-room.votacaoFila = vivos.map(p => p.id); room.votacaoIndex = 0;
+room.votacaoFila = vivos.map(p => p.id);
+// Embaralhar ordem de votacao aleatoriamente
+for (let _vi = room.votacaoFila.length - 1; _vi > 0; _vi--) {
+const _vj = Math.floor(Math.random() * (_vi + 1));
+[room.votacaoFila[_vi], room.votacaoFila[_vj]] = [room.votacaoFila[_vj], room.votacaoFila[_vi]];
+}
+room.votacaoIndex = 0;
 iniciarTurnoVotacao(roomCode);
 }
 
@@ -546,8 +552,13 @@ const alvo = room.players.find(p => p.id === alvoId);
 if (!alvo) return res.status(404).json({ error: 'Jogador nao encontrado' });
 detetivePlayer.usosHabilidade--;
 const eBom = alvo.papel !== 'assassino';
-// Enviar resultado apenas para o detetive
+// Enviar resultado apenas para o detetive (direto ao socket dele)
+const detetiveSocketId = Object.keys(socketUsers).find(sid => socketUsers[sid].userId === userId && socketUsers[sid].roomCode === req.params.code.toUpperCase());
+if (detetiveSocketId) {
+io.to(detetiveSocketId).emit('resultado-detetive', { investigadorId: userId, alvoId, alvoName: alvo.name, eBom });
+} else {
 io.to(req.params.code.toUpperCase()).emit('resultado-detetive', { investigadorId: userId, alvoId, alvoName: alvo.name, eBom });
+}
 res.json({ ok: true, eBom });
 });
 app.post('/api/rooms/:code/soldado-atirar', (req, res) => {
