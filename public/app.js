@@ -5,10 +5,9 @@ let countdownInterval = null;
 let myStatus = 'alive';
 let isSpectator = false;
 let decisionInterval = null;
-let meuPapel = 'cidadao'; // papel do jogador atual
+let meuPapel = 'cidadao';
 let meuPapelInfo = null;
 
-// ---- AUDIO / WebRTC ----
 let localStream = null;
 let micMuted = true;
 let peers = {};
@@ -16,11 +15,7 @@ const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { ur
 
 async function ativarMicrofone() {
 if (localStream) return;
-try {
-localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-localStream.getAudioTracks().forEach(t => { t.enabled = false; });
-micMuted = true; atualizarBotaoMic();
-} catch (e) { alert('Nao foi possivel acessar o microfone.'); }
+try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); localStream.getAudioTracks().forEach(t => { t.enabled = false; }); micMuted = true; atualizarBotaoMic(); } catch (e) { alert('Nao foi possivel acessar o microfone.'); }
 }
 async function abrirMicAutomatico() {
 if (myStatus === 'dead') return;
@@ -67,7 +62,6 @@ socket.on('webrtc-answer', async ({ from, answer }) => { const pc = peers[from];
 socket.on('webrtc-ice', async ({ from, candidate }) => { const pc = peers[from]; if (pc && candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {} } });
 socket.on('peer-left', ({ socketId }) => removerPeer(socketId));
 socket.on('mic-status', ({ userId, muted }) => { const indicator = document.querySelector('[data-userid="' + userId + '"] .mic-indicator'); if (indicator) { indicator.textContent = muted ? '🔇' : '🎙️'; indicator.classList.toggle('falando', !muted); } });
-
 function renderFeed(feed) { document.querySelectorAll('.game-feed').forEach(el => { if (!el || !feed) return; el.innerHTML = ''; feed.forEach(item => { const div = document.createElement('div'); div.className = 'feed-item feed-' + (item.tipo || 'sistema'); div.textContent = item.msg; el.appendChild(div); }); }); }
 socket.on('feed-update', (feed) => { renderFeed(feed); });
 socket.on('spectator-count', (data) => { document.querySelectorAll('.spectator-count-badge').forEach(el => { el.textContent = '👁️ ' + data.count + ' espectador' + (data.count === 1 ? '' : 'es'); }); });
@@ -83,41 +77,32 @@ function showHome(user) { hideAll(); document.getElementById('home-screen').clas
 function showJoin() { hideAll(); document.getElementById('join-screen').classList.add('active'); document.getElementById('input-codigo').value = ''; carregarSalas(); }
 function showRoom(room) { hideAll(); document.getElementById('room-screen').classList.add('active'); currentRoom = room; isSpectator = false; renderRoom(room); socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: false }); ativarMicrofone(); }
 function showSpectatorRoom(room) { hideAll(); document.getElementById('spectator-screen').classList.add('active'); currentRoom = room; isSpectator = true; const statusEl = document.getElementById('spectator-status'); if (statusEl) { const statusMap = { waiting: '⏳ Aguardando inicio', night: '🌙 Fase da Noite', voting: '☀️ Votacao em andamento', result: '📋 Resultado', ended: '🏆 Jogo Encerrado' }; statusEl.textContent = statusMap[room.status] || 'Ao vivo...'; } socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: true }); }
-// Mapa de estilos por papel
+
 const PAPEL_ESTILOS = {
 assassino: { emoji: '🔪', classe: 'assassino', cor: '#ff6060' },
-anjo:      { emoji: '👼', classe: 'anjo', cor: '#ffe080' },
-detetive:  { emoji: '🕵️', classe: 'detetive', cor: '#80d0ff' },
-soldado:   { emoji: '🦖', classe: 'soldado', cor: '#80ff80' },
-palhaco:   { emoji: '🤡', classe: 'palhaco', cor: '#ff80ff' },
-cidadao:   { emoji: '😴', classe: 'cidadao', cor: '#a0a0ff' }
+anjo: { emoji: '👼', classe: 'anjo', cor: '#ffe080' },
+detetive: { emoji: '🕵️', classe: 'detetive', cor: '#80d0ff' },
+soldado: { emoji: '🪖', classe: 'soldado', cor: '#80ff80' },
+palhaco: { emoji: '🤡', classe: 'palhaco', cor: '#ff80ff' },
+cidadao: { emoji: '😴', classe: 'cidadao', cor: '#a0a0ff' }
 };
-
 function showGame(data) {
 if (isSpectator) { showSpectatorView({ status: 'night', feed: data.feed || [], spectators: 0 }); return; }
-// O servidor envia game-night com targetUserId para cada jogador
-// Verifica se este evento e para mim
-if (data.targetUserId && currentUser && data.targetUserId !== currentUser.id) return;
-
 hideAll();
 document.getElementById('game-screen').classList.add('active');
 if (data.feed) renderFeed(data.feed);
-
 meuPapel = data.papelId || 'cidadao';
 meuPapelInfo = data.papelInfo || { nome: 'Cidadao', emoji: '😴', desc: 'A cidade dorme...', podeAgir: false };
 const estilo = PAPEL_ESTILOS[meuPapel] || PAPEL_ESTILOS.cidadao;
-
 const roleEl = document.getElementById('game-role');
 const roleDescEl = document.getElementById('game-role-desc');
-roleEl.textContent = estilo.emoji + ' Voce e ' + (meuPapel === 'assassino' ? 'o' : meuPapel === 'anjo' ? 'o' : meuPapel === 'detetive' ? 'o' : meuPapel === 'soldado' ? 'o' : meuPapel === 'palhaco' ? 'o' : 'um') + ' ' + meuPapelInfo.nome.toUpperCase();
+const artigo = (meuPapel === 'cidadao') ? 'um' : 'o';
+roleEl.textContent = estilo.emoji + ' Voce e ' + artigo + ' ' + (meuPapelInfo.nome || meuPapel).toUpperCase();
 roleEl.className = 'game-role ' + estilo.classe;
-roleDescEl.textContent = meuPapelInfo.desc;
-
-// Mostrar secao de acao conforme papel
+if (roleDescEl) roleDescEl.textContent = meuPapelInfo.desc || meuPapelInfo.descricao || '';
 document.getElementById('kill-result-box').style.display = 'none';
 document.getElementById('game-overlay-text').textContent = '';
 renderAcoesNoite(data);
-
 iniciarCountdown('game-countdown', 'countdown-bar', data.segundos || 30);
 forceMute();
 const btnMic = document.getElementById('btn-mic');
@@ -129,15 +114,13 @@ const secAssassino = document.getElementById('vitimas-section');
 const secEspecial = document.getElementById('acoes-especiais-section');
 const acoesList = document.getElementById('acoes-especiais-list');
 const acaoTitulo = document.getElementById('acao-especial-titulo');
-
 secAssassino.style.display = 'none';
 secEspecial.style.display = 'none';
-
 if (meuPapel === 'assassino') {
 secAssassino.style.display = 'block';
 const vitimasList = document.getElementById('vitimas-list');
 vitimasList.innerHTML = '';
-data.vitimas.forEach(v => {
+(data.vitimas || []).forEach(v => {
 const btn = document.createElement('button');
 btn.className = 'btn-vitima';
 btn.setAttribute('data-id', v.id);
@@ -148,10 +131,10 @@ vitimasList.appendChild(btn);
 } else if (meuPapelInfo && meuPapelInfo.podeAgir) {
 secEspecial.style.display = 'block';
 acoesList.innerHTML = '';
-let lista = [], titulo = '', onClickFn = null;
-if (meuPapel === 'anjo') { lista = data.alvosAnjo || data.vitimas || []; titulo = '👼 Escolha quem proteger:'; onClickFn = (id) => usarAnjo(id); }
-else if (meuPapel === 'detetive') { lista = data.alvosDetective || data.vitimas || []; titulo = '🕵️ Escolha quem investigar:'; onClickFn = (id) => usarDetetive(id); }
-else if (meuPapel === 'soldado') { lista = data.alvosSoldado || data.vitimas || []; titulo = '🦖 Escolha o alvo do seu tiro:'; onClickFn = (id) => usarSoldado(id); }
+let lista = data.vitimas || [], titulo = '', onClickFn = null;
+if (meuPapel === 'anjo') { titulo = '👼 Escolha quem proteger:'; onClickFn = (id) => usarAnjo(id); }
+else if (meuPapel === 'detetive') { titulo = '🕵️ Escolha quem investigar:'; onClickFn = (id) => usarDetetive(id); }
+else if (meuPapel === 'soldado') { titulo = '🪖 Escolha o alvo do seu tiro:'; onClickFn = (id) => usarSoldado(id); }
 if (acaoTitulo) acaoTitulo.textContent = titulo;
 lista.forEach(v => {
 const btn = document.createElement('button');
@@ -161,14 +144,12 @@ btn.innerHTML = (v.photo ? '<img src="' + v.photo + '" class="vitima-avatar">' :
 btn.addEventListener('click', () => { if (onClickFn) onClickFn(v.id); });
 acoesList.appendChild(btn);
 });
-// Botao pular acao
 const btnPular = document.createElement('button');
 btnPular.className = 'btn-pular-acao';
 btnPular.textContent = 'Nao usar habilidade esta noite';
 btnPular.addEventListener('click', () => { secEspecial.style.display = 'none'; document.getElementById('game-overlay-text').textContent = 'Voce optou por nao usar sua habilidade.'; });
 acoesList.appendChild(btnPular);
 } else if (meuPapel === 'palhaco') {
-// Palhaco nao age, apenas aguarda
 document.getElementById('game-overlay-text').textContent = '🤡 Aguarde... a cidade precisa te eliminar!';
 }
 }
@@ -188,7 +169,7 @@ document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { 
 const res = await fetch('/api/rooms/' + currentRoom.code + '/anjo-salvar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alvoId }) });
 const data = await res.json();
 if (data.error) { alert(data.error); document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { b.disabled = false; }); }
-else { const alvoBt = document.querySelector('[data-id="' + alvoId + '"]'); if (alvoBt) alvoBt.classList.add('escolhida'); document.getElementById('game-overlay-text').textContent = '👼 Protecao enviada! Usos restantes: ' + data.usosRestantes; document.getElementById('acoes-especiais-section').style.display = 'none'; }
+else { document.getElementById('acoes-especiais-section').style.display = 'none'; document.getElementById('game-overlay-text').textContent = '👼 Protecao enviada!'; }
 }
 
 async function usarDetetive(alvoId) {
@@ -197,7 +178,7 @@ document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { 
 const res = await fetch('/api/rooms/' + currentRoom.code + '/detetive-investigar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alvoId }) });
 const data = await res.json();
 if (data.error) { alert(data.error); document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { b.disabled = false; }); }
-else { document.getElementById('acoes-especiais-section').style.display = 'none'; document.getElementById('game-overlay-text').textContent = '🕵️ Investigacao enviada! Usos restantes: ' + data.usosRestantes + '. Resultado aparecera em breve...'; }
+else { document.getElementById('acoes-especiais-section').style.display = 'none'; document.getElementById('game-overlay-text').textContent = '🕵️ Investigacao enviada! Resultado em breve...'; }
 }
 
 async function usarSoldado(alvoId) {
@@ -206,15 +187,13 @@ document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { 
 const res = await fetch('/api/rooms/' + currentRoom.code + '/soldado-atirar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alvoId }) });
 const data = await res.json();
 if (data.error) { alert(data.error); document.querySelectorAll('.btn-acao-especial, .btn-pular-acao').forEach(b => { b.disabled = false; }); }
-else { const alvoBt = document.querySelector('[data-id="' + alvoId + '"]'); if (alvoBt) alvoBt.classList.add('escolhida'); document.getElementById('game-overlay-text').textContent = '🦖 Tiro disparado! Aguarde o resultado...'; document.getElementById('acoes-especiais-section').style.display = 'none'; }
+else { document.getElementById('acoes-especiais-section').style.display = 'none'; document.getElementById('game-overlay-text').textContent = '🪖 Tiro disparado! Aguarde o resultado...'; }
 }
-
-// Resultado do detetive (privado — so aparece para o detetive)
 socket.on('resultado-detetive', (data) => {
 if (!currentUser || data.investigadorId !== currentUser.id) return;
 const overlay = document.getElementById('game-overlay-text');
 const alvoName = data.alvoName || (data.alvo && data.alvo.name) || 'Jogador';
-if (data.eBom) { if (overlay) overlay.textContent = '✅ ' + alvoName + ' e BOA PESSOA (Cidadao/Especial)'; }
+if (data.eBom) { if (overlay) overlay.textContent = '✅ ' + alvoName + ' e BOA PESSOA'; }
 else { if (overlay) overlay.textContent = '❌ ' + alvoName + ' e RUIM (Assassino)'; }
 mostrarResultadoDetetive({ eBom: data.eBom, alvo: { name: alvoName } });
 });
@@ -247,6 +226,7 @@ const cd = document.getElementById('game-countdown'); if (cd) cd.textContent = '
 const bar = document.getElementById('countdown-bar'); if (bar) bar.style.width = '0%';
 }
 });
+
 function iniciarCountdown(elId, barId, segundos) {
 if (countdownInterval) clearInterval(countdownInterval);
 let restante = segundos;
@@ -263,28 +243,27 @@ const countdown = document.getElementById('game-countdown'); const bar = documen
 if (countdown) countdown.textContent = '0s'; if (bar) bar.style.width = '0%';
 document.getElementById('vitimas-section').style.display = 'none';
 document.getElementById('acoes-especiais-section').style.display = 'none';
-// Normalizar formato: aceitar tanto data.mortos (novo) quanto data.vitima (legado)
 const listaMortos = data.mortos || (data.vitima ? [{ vitima: data.vitima, tipo: 'assassino' }] : []);
 if (listaMortos.length === 0 && !data.assassinoFalhou) {
-  if (box) { box.style.display = 'flex'; document.getElementById('kill-icon').textContent = '🌙'; document.getElementById('kill-msg').textContent = 'A noite passou...'; document.getElementById('kill-sub').textContent = 'Ninguem morreu esta noite.'; }
-  return;
+if (box) { box.style.display = 'flex'; document.getElementById('kill-icon').textContent = '🌙'; document.getElementById('kill-msg').textContent = 'A noite passou...'; document.getElementById('kill-sub').textContent = 'Ninguem morreu esta noite.'; }
+return;
 }
 if (box) box.style.display = 'flex';
 const icon = document.getElementById('kill-icon'); const msg = document.getElementById('kill-msg'); const sub = document.getElementById('kill-sub');
 if (listaMortos.length > 0) {
-  const primeiro = listaMortos[0];
-  const jogador = primeiro.vitima || primeiro;
-  const tipo = primeiro.tipo || 'assassino';
-  if (currentUser && jogador.id === currentUser.id) myStatus = 'dead';
-  icon.textContent = tipo === 'soldado' ? '🪖' : '☠️';
-  msg.textContent = jogador.name + ' foi eliminado!';
-  sub.textContent = (tipo === 'soldado' ? 'O Soldado eliminou ' : 'O Assassino matou ') + jogador.name + '.';
-  if (listaMortos.length > 1) {
-    sub.textContent += ' E mais ' + (listaMortos.length - 1) + ' eliminado' + (listaMortos.length > 2 ? 's' : '') + '!';
-    listaMortos.forEach(m => { const j = m.vitima || m; if (currentUser && j.id === currentUser.id) myStatus = 'dead'; });
-  }
+const primeiro = listaMortos[0];
+const jogador = primeiro.vitima || primeiro;
+const tipo = primeiro.tipo || 'assassino';
+if (currentUser && jogador.id === currentUser.id) myStatus = 'dead';
+icon.textContent = tipo === 'soldado' ? '🪖' : '☠️';
+msg.textContent = jogador.name + ' foi eliminado!';
+sub.textContent = (tipo === 'soldado' ? 'O Soldado eliminou ' : 'O Assassino matou ') + jogador.name + '.';
+if (listaMortos.length > 1) {
+sub.textContent += ' E mais ' + (listaMortos.length - 1) + ' eliminado' + (listaMortos.length > 2 ? 's' : '') + '!';
+listaMortos.forEach(m => { const j = m.vitima || m; if (currentUser && j.id === currentUser.id) myStatus = 'dead'; });
+}
 } else if (data.assassinoFalhou) {
-  icon.textContent = '⚠️'; msg.textContent = 'O assassino falhou!'; sub.textContent = 'Alguem foi protegido pelo Anjo.';
+icon.textContent = '⚠️'; msg.textContent = 'O assassino falhou!'; sub.textContent = 'Alguem foi protegido pelo Anjo.';
 }
 });
 socket.on('vote-turn', async (data) => {
@@ -297,7 +276,7 @@ document.getElementById('vote-votante-name').textContent = data.votante.name;
 const votanteImg = document.getElementById('vote-votante-img');
 if (data.votante.photo) { votanteImg.src = data.votante.photo; votanteImg.style.display = 'block'; } else { votanteImg.style.display = 'none'; }
 const msgEl = document.getElementById('vote-message');
-if (isMyTurn) { msgEl.textContent = 'É SUA VEZ! Vote em quem acha que e o assassino!'; msgEl.className = 'vote-message minha-vez'; }
+if (isMyTurn) { msgEl.textContent = 'E SUA VEZ! Vote em quem acha que e o assassino!'; msgEl.className = 'vote-message minha-vez'; }
 else { msgEl.textContent = data.votante.name + ' esta votando. Apenas o microfone dele esta ativo.'; msgEl.className = 'vote-message'; }
 const btnMic = document.getElementById('btn-mic-vote');
 if (isMyTurn && !isDead) { if (btnMic) { btnMic.disabled = false; btnMic.title = ''; } await abrirMicAutomatico(); }
@@ -337,8 +316,6 @@ roleRevealEl.textContent = estilo.emoji + ' ERA ' + (data.era_assassino ? 'O ASS
 roleRevealEl.className = 'role-reveal ' + (data.era_assassino ? 'assassino' : data.era_palhaco ? 'palhaco' : 'cidadao');
 if (currentUser && data.eliminado.id === currentUser.id) myStatus = 'dead';
 }
-document.getElementById('btn-replay') && (document.getElementById('btn-replay').style.display = 'none');
-document.getElementById('btn-sair-pos-jogo') && (document.getElementById('btn-sair-pos-jogo').style.display = 'none');
 forceMute();
 });
 function mostrarTelaDecisao(data) {
@@ -349,7 +326,7 @@ hideAll(); document.getElementById('decision-screen').classList.add('active');
 if (data.tipo === 'reveal') { document.getElementById('decision-icon').textContent = '💀'; document.getElementById('decision-title').textContent = 'ASSASSINO VENCEU!'; const rev = document.getElementById('decision-reveal'); if (rev) { rev.style.display = 'block'; rev.textContent = '🔪 ' + data.assassino.name + ' ERA O ASSASSINO!'; rev.className = 'role-reveal assassino'; } }
 else {
 let icon, title;
-if (data.vencedor === 'palhaco') { icon = '🤡'; title = data.vencedorNome + ' — O PALHACO VENCEU!'; }
+if (data.vencedor === 'palhaco') { icon = '🤡'; title = (data.vencedorNome || 'Palhaco') + ' — O PALHACO VENCEU!'; }
 else if (data.vencedor === 'cidade') { icon = '🏆'; title = 'CIDADE VENCEU!'; }
 else { icon = '💀'; title = 'ASSASSINO VENCEU!'; }
 document.getElementById('decision-icon').textContent = icon;
@@ -362,6 +339,7 @@ let restante = data.segundosDecisao || 30;
 const timerEl = document.getElementById('decision-timer'); if (timerEl) timerEl.textContent = restante;
 decisionInterval = setInterval(() => { restante--; if (timerEl) timerEl.textContent = restante; if (restante <= 0) { clearInterval(decisionInterval); sairPosjogo(); } }, 1000);
 }
+
 socket.on('fim-de-jogo', (data) => { mostrarTelaDecisao(data); });
 socket.on('replay-voto', (data) => { const votoInfo = document.getElementById('decision-voto-info'); if (votoInfo) votoInfo.textContent = data.votosCount + ' de ' + data.total + ' querem jogar novamente'; });
 
@@ -402,7 +380,6 @@ lista.querySelectorAll('.btn-entrar-sala').forEach(btn => { btn.addEventListener
 } catch (e) { lista.innerHTML = '<div class="salas-vazio">Erro ao carregar salas.</div>'; }
 }
 async function entrarNaSala(code, status, playerCount) { const res = await fetch('/api/rooms/' + code.toUpperCase() + '/join', { method: 'POST', headers: { 'Content-Type': 'application/json' } }); const data = await res.json(); if (data.error) { alert(data.error); return; } if (data.asSpectator) { showSpectatorRoom(data.room); } else { showRoom(data.room); } }
-
 function renderRoom(room) {
 document.getElementById('room-code').textContent = room.code;
 document.getElementById('room-players-count').textContent = room.players.length;
@@ -432,8 +409,9 @@ const btnSairPosJogo = document.getElementById('btn-sair-pos-jogo'); if (btnSair
 const btnReplay = document.getElementById('btn-replay'); if (btnReplay) { btnReplay.addEventListener('click', () => jogarNovamente()); }
 const btnSairSpec = document.getElementById('btn-sair-spectator'); if (btnSairSpec) { btnSairSpec.addEventListener('click', () => { currentRoom = null; isSpectator = false; showHome(currentUser); }); }
 socket.on('room-update', (room) => { if (currentRoom && room.code === currentRoom.code) { currentRoom = room; if (!isSpectator) renderRoom(room); } });
-socket.on('socket.on('game-night-player', (data) => { if (currentUser && data.playerId === currentUser.id) { showGame({ ...data, papelId: data.papel, papelInfo: data.papelInfo, segundos: data.segundos, vitimas: data.vitimas || [], feed: data.feed }); } });
-socket.on('game-night', (data) => { if (isSpectator) { showSpectatorView({ status: 'night', feed: data.feed || [], spectators: 0 }); } });'room-reset', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); forceMute(); myStatus = 'alive'; isSpectator = false; currentRoom = data.room; showRoom(data.room); });
+socket.on('game-night-player', (data) => { if (currentUser && data.playerId === currentUser.id) { showGame({ papelId: data.papel, papelInfo: data.papelInfo, segundos: data.segundos, vitimas: data.vitimas || [], feed: data.feed || [] }); } });
+socket.on('game-night', (data) => { if (isSpectator) { showSpectatorView({ status: 'night', feed: data.feed || [], spectators: 0 }); } });
+socket.on('room-reset', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); forceMute(); myStatus = 'alive'; isSpectator = false; currentRoom = data.room; showRoom(data.room); });
 socket.on('sala-pronta', (data) => { if (isSpectator) return; if (decisionInterval) clearInterval(decisionInterval); currentRoom = data.room; myStatus = 'alive'; meuPapel = 'cidadao'; showRoom(data.room); });
 socket.on('jogador-saiu-pos-jogo', (data) => { if (currentUser && data.userId === currentUser.id) { if (decisionInterval) clearInterval(decisionInterval); currentRoom = null; isSpectator = false; showHome(currentUser); } });
 socket.on('sala-fechada', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); pararAudio(); currentRoom = null; isSpectator = false; myStatus = 'alive'; alert(data.motivo || 'A sala foi encerrada.'); if (currentUser) showHome(currentUser); else showLogin(); });
