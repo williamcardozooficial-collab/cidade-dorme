@@ -277,6 +277,9 @@ icon.textContent = '⚠️'; msg.textContent = 'O assassino falhou!'; sub.textCo
 });
 socket.on('vote-turn', async (data) => {
 if (isSpectator) { const statusEl = document.getElementById('spectator-status'); if (statusEl) statusEl.textContent = '☀️ Votando: ' + data.votante.name + ' (' + data.turnoAtual + '/' + data.totalVotantes + ')'; if (data.feed) renderFeed(data.feed); return; }
+if (data.turnoAtual === 1) { resetarPlacar(); }
+data.alvos.forEach(a => { nomesJogadoresVotacao[a.id] = a.name; });
+nomesJogadoresVotacao[data.votante.id] = data.votante.name;
 hideAll(); document.getElementById('vote-screen').classList.add('active');
 if (data.feed) renderFeed(data.feed);
 const isMyTurn = currentUser && data.votante.id === currentUser.id; const isDead = myStatus === 'dead';
@@ -299,6 +302,7 @@ iniciarCountdown('vote-countdown', 'vote-countdown-bar', data.segundos || 60);
 
 socket.on('vote-cast', (data) => {
 if (isSpectator) return;
+if (data.alvoId) { votosAcumulados[data.alvoId] = (votosAcumulados[data.alvoId] || 0) + 1; atualizarPlacar(); }
 if (countdownInterval) clearInterval(countdownInterval);
 const el = document.getElementById('vote-countdown'); if (el) el.textContent = '✓';
 document.querySelectorAll('.btn-votar-alvo').forEach(b => { b.disabled = true; if (b.getAttribute('data-id') === data.alvoId) b.classList.add('votado'); });
@@ -424,6 +428,31 @@ socket.on('room-reset', (data) => { if (countdownInterval) clearInterval(countdo
 socket.on('sala-pronta', (data) => { if (isSpectator) return; if (decisionInterval) clearInterval(decisionInterval); currentRoom = data.room; myStatus = 'alive'; meuPapel = 'cidadao'; showRoom(data.room); });
 socket.on('jogador-saiu-pos-jogo', (data) => { if (currentUser && data.userId === currentUser.id) { if (decisionInterval) clearInterval(decisionInterval); currentRoom = null; isSpectator = false; showHome(currentUser); } });
 socket.on('sala-fechada', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); pararAudio(); currentRoom = null; isSpectator = false; myStatus = 'alive'; alert(data.motivo || 'A sala foi encerrada.'); if (currentUser) showHome(currentUser); else showLogin(); });
+
+// ===== PLACAR DE VOTOS =====
+let votosAcumulados = {};
+let nomesJogadoresVotacao = {};
+
+function resetarPlacar() {
+  votosAcumulados = {};
+  nomesJogadoresVotacao = {};
+  const placar = document.getElementById('vote-placar');
+  if (placar) placar.style.display = 'none';
+}
+
+function atualizarPlacar() {
+  const placar = document.getElementById('vote-placar');
+  if (!placar) return;
+  const comVotos = Object.entries(votosAcumulados).filter(([id, qtd]) => qtd > 0);
+  if (comVotos.length === 0) { placar.style.display = 'none'; return; }
+  comVotos.sort((a, b) => b[1] - a[1]);
+  placar.style.display = 'flex';
+  placar.innerHTML = comVotos.map(([id, qtd]) => {
+    const nome = nomesJogadoresVotacao[id] || id;
+    const primeiroNome = nome.split(' ')[0];
+    return '<span class="placar-item"><span class="placar-nome">' + primeiroNome + '</span><span class="placar-votos">' + qtd + '</span></span>';
+  }).join('');
+}
 
 // ===== CHAT DA SALA =====
 let chatMinimizado = false;
