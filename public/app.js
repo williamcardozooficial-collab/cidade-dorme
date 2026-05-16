@@ -72,11 +72,11 @@ const ALL_SCREENS = ['login-screen','home-screen','join-screen','room-screen','g
 function hideAll() { ALL_SCREENS.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); }); }
 
 async function checkAuth() { const res = await fetch('/api/me'); const data = await res.json(); if (data.user) { currentUser = data.user; showHome(data.user); } else showLogin(); }
-function showLogin() { hideAll(); document.getElementById('login-screen').classList.add('active'); }
-function showHome(user) { hideAll(); document.getElementById('home-screen').classList.add('active'); isSpectator = false; const name = user.displayName || user.name || 'Jogador'; const photo = (user.photos && user.photos[0]) ? user.photos[0].value : ''; document.getElementById('welcome-name').textContent = name.split(' ')[0]; document.getElementById('user-name').textContent = name.split(' ')[0]; const avatar = document.getElementById('user-avatar'); if (photo) { avatar.src = photo; avatar.style.display = 'block'; } myStatus = 'alive'; meuPapel = 'cidadao'; }
+function showLogin() { hideAll(); esconderChat(); limparMensagensChat(); document.getElementById('login-screen').classList.add('active'); }
+function showHome(user) { hideAll(); esconderChat(); limparMensagensChat(); document.getElementById('home-screen').classList.add('active'); isSpectator = false; const name = user.displayName || user.name || 'Jogador'; const photo = (user.photos && user.photos[0]) ? user.photos[0].value : ''; document.getElementById('welcome-name').textContent = name.split(' ')[0]; document.getElementById('user-name').textContent = name.split(' ')[0]; const avatar = document.getElementById('user-avatar'); if (photo) { avatar.src = photo; avatar.style.display = 'block'; } myStatus = 'alive'; meuPapel = 'cidadao'; }
 function showJoin() { hideAll(); document.getElementById('join-screen').classList.add('active'); document.getElementById('input-codigo').value = ''; carregarSalas(); }
-function showRoom(room) { hideAll(); document.getElementById('room-screen').classList.add('active'); currentRoom = room; isSpectator = false; renderRoom(room); socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: false }); ativarMicrofone(); }
-function showSpectatorRoom(room) { hideAll(); document.getElementById('spectator-screen').classList.add('active'); currentRoom = room; isSpectator = true; const statusEl = document.getElementById('spectator-status'); if (statusEl) { const statusMap = { waiting: '⏳ Aguardando inicio', night: '🌙 Fase da Noite', voting: '☀️ Votacao em andamento', result: '📋 Resultado', ended: '🏆 Jogo Encerrado' }; statusEl.textContent = statusMap[room.status] || 'Ao vivo...'; } socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: true }); }
+function showRoom(room) { hideAll(); mostrarChat(); document.getElementById('room-screen').classList.add('active'); currentRoom = room; isSpectator = false; renderRoom(room); socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: false }); ativarMicrofone(); }
+function showSpectatorRoom(room) { hideAll(); mostrarChat(); document.getElementById('spectator-screen').classList.add('active'); currentRoom = room; isSpectator = true; const statusEl = document.getElementById('spectator-status'); if (statusEl) { const statusMap = { waiting: '⏳ Aguardando inicio', night: '🌙 Fase da Noite', voting: '☀️ Votacao em andamento', result: '📋 Resultado', ended: '🏆 Jogo Encerrado' }; statusEl.textContent = statusMap[room.status] || 'Ao vivo...'; } socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: true }); }
 
 const PAPEL_ESTILOS = {
 assassino: { emoji: '🔪', classe: 'assassino', cor: '#ff6060' },
@@ -415,4 +415,100 @@ socket.on('room-reset', (data) => { if (countdownInterval) clearInterval(countdo
 socket.on('sala-pronta', (data) => { if (isSpectator) return; if (decisionInterval) clearInterval(decisionInterval); currentRoom = data.room; myStatus = 'alive'; meuPapel = 'cidadao'; showRoom(data.room); });
 socket.on('jogador-saiu-pos-jogo', (data) => { if (currentUser && data.userId === currentUser.id) { if (decisionInterval) clearInterval(decisionInterval); currentRoom = null; isSpectator = false; showHome(currentUser); } });
 socket.on('sala-fechada', (data) => { if (countdownInterval) clearInterval(countdownInterval); if (decisionInterval) clearInterval(decisionInterval); pararAudio(); currentRoom = null; isSpectator = false; myStatus = 'alive'; alert(data.motivo || 'A sala foi encerrada.'); if (currentUser) showHome(currentUser); else showLogin(); });
+
+// ===== CHAT DA SALA =====
+let chatMinimizado = false;
+let chatAberto = false;
+
+function mostrarChat() {
+  const widget = document.getElementById('chat-widget');
+  if (widget) { widget.style.display = 'block'; chatAberto = true; }
+}
+function esconderChat() {
+  const widget = document.getElementById('chat-widget');
+  if (widget) { widget.style.display = 'none'; chatAberto = false; }
+  limparMensagensChat();
+}
+function limparMensagensChat() {
+  const msgs = document.getElementById('chat-mensagens');
+  if (msgs) msgs.innerHTML = '';
+}
+
+function iniciarChat() {
+  const toggle = document.getElementById('chat-toggle');
+  const input = document.getElementById('chat-input');
+  const enviar = document.getElementById('chat-enviar');
+  const counter = document.getElementById('chat-char-count');
+  const widget = document.getElementById('chat-widget');
+
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      chatMinimizado = !chatMinimizado;
+      if (widget) widget.classList.toggle('minimizado', chatMinimizado);
+      if (!chatMinimizado) ocultarUnread();
+    });
+  }
+  if (input) {
+    input.addEventListener('input', () => {
+      const len = input.value.length;
+      if (counter) {
+        counter.textContent = len;
+        const wrap = counter.parentElement;
+        wrap.className = 'chat-counter' + (len >= 50 ? ' cheio' : len >= 40 ? ' quase' : '');
+      }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') enviarMensagemChat();
+    });
+  }
+  if (enviar) enviar.addEventListener('click', enviarMensagemChat);
+}
+
+function enviarMensagemChat() {
+  if (!currentRoom || !currentUser) return;
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const texto = input.value.trim().slice(0, 50);
+  if (!texto) return;
+  const nomeUsuario = currentUser.displayName || currentUser.name || 'Jogador';
+  socket.emit('chat-mensagem', { code: currentRoom.code, texto, nomeUsuario, isEspectador: isSpectator });
+  input.value = '';
+  const counter = document.getElementById('chat-char-count');
+  if (counter) { counter.textContent = '0'; counter.parentElement.className = 'chat-counter'; }
+}
+
+function adicionarMensagemChat(msg) {
+  const container = document.getElementById('chat-mensagens');
+  if (!container) return;
+  const div = document.createElement('div');
+  const ehMinha = currentUser && msg.nomeUsuario === (currentUser.displayName || currentUser.name || 'Jogador');
+  div.className = 'chat-msg' + (ehMinha ? ' minha' : '') + (msg.isEspectador ? ' espectador' : '');
+  const nomeEl = document.createElement('div');
+  nomeEl.className = 'chat-msg-nome';
+  nomeEl.textContent = (msg.isEspectador ? '👁️ ' : '') + msg.nomeUsuario;
+  const textoEl = document.createElement('div');
+  textoEl.className = 'chat-msg-texto';
+  textoEl.textContent = msg.texto;
+  div.appendChild(nomeEl);
+  div.appendChild(textoEl);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  if (chatMinimizado) mostrarUnread();
+}
+
+function mostrarUnread() {
+  const badge = document.getElementById('chat-unread');
+  if (badge) badge.style.display = 'inline';
+}
+function ocultarUnread() {
+  const badge = document.getElementById('chat-unread');
+  if (badge) badge.style.display = 'none';
+}
+
+socket.on('chat-mensagem', (msg) => {
+  adicionarMensagemChat(msg);
+});
+
+// Inicializar chat ao carregar
+iniciarChat();
 checkAuth();
