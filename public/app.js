@@ -397,7 +397,7 @@ const specBadge = document.getElementById('room-spectators'); if (specBadge) spe
 const list = document.getElementById('players-list'); list.innerHTML = '';
 room.players.forEach(p => { const div = document.createElement('div'); div.className = 'player-item'; div.setAttribute('data-userid', p.id); const initials = p.name.charAt(0).toUpperCase(); const micIcon = '<span class="mic-indicator">🔇</span>'; div.innerHTML = p.photo ? '<img src="' + p.photo + '" class="player-avatar-img"><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>' + micIcon + '</div>' : '<div class="player-avatar-placeholder">' + initials + '</div><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span>' + micIcon + '</div>'; list.appendChild(div); });
 const startBtn = document.getElementById('btn-start'); const fakeBtn = document.getElementById('btn-add-fake'); const isHost = currentUser && room.host === currentUser.id;
-if (isHost) { startBtn.style.display = 'block'; const canStart = room.players.length >= room.minPlayers; startBtn.disabled = !canStart; startBtn.title = canStart ? '' : 'Precisa de pelo menos ' + room.minPlayers + ' jogadores'; if (fakeBtn) fakeBtn.style.display = room.players.length < room.minPlayers ? 'block' : 'none'; }
+if (isHost) { startBtn.style.display = 'block'; const canStart = room.players.length >= room.minPlayers; startBtn.disabled = !canStart; startBtn.title = canStart ? '' : 'Precisa de pelo menos ' + room.minPlayers + ' jogadores'; if (fakeBtn) fakeBtn.style.display = 'block'; }
 else { startBtn.style.display = 'none'; if (fakeBtn) fakeBtn.style.display = 'none'; }
 }
 
