@@ -199,7 +199,7 @@ if (data.error) { alert(data.error); document.querySelectorAll('.btn-acao-especi
 else { document.getElementById('acoes-especiais-section').style.display = 'none'; document.getElementById('game-overlay-text').textContent = '🪖 Tiro disparado! Aguarde o resultado...'; }
 }
 socket.on('resultado-detetive', (data) => {
-if (!currentUser || data.investigadorId !== currentUser.id) return;
+// Servidor ja emite direto ao socket do detetive, sem necessidade de filtro por ID
 const overlay = document.getElementById('game-overlay-text');
 const alvoName = data.alvoName || (data.alvo && data.alvo.name) || 'Jogador';
 if (data.eBom) { if (overlay) overlay.textContent = '✅ ' + alvoName + ' e BOA PESSOA'; }
