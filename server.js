@@ -1,4 +1,4 @@
-// deploy trigger v13
+// deploy trigger v14
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -348,9 +348,9 @@ const votante = room.players.find(p => p.id === votanteId);
 const vivos = room.players.filter(p => !room.mortos.includes(p.id));
 const alvos = vivos.filter(p => p.id !== votanteId).map(p => ({ id: p.id, name: p.name, photo: p.photo }));
 room.votanteAtual = votanteId;
-io.to(roomCode).emit('vote-turn', { votante: { id: votante.id, name: votante.name, photo: votante.photo }, alvos, segundos: 60, totalVotantes: room.votacaoFila.length, turnoAtual: idx + 1, feed: room.feed || [] });
+io.to(roomCode).emit('vote-turn', { votante: { id: votante.id, name: votante.name, photo: votante.photo }, alvos, segundos: 30, totalVotantes: room.votacaoFila.length, turnoAtual: idx + 1, feed: room.feed || [] });
 clearTimeout(gameTimers[roomCode + '_vote']);
-const delay = votanteId.startsWith('fake_') ? 2000 : 60000;
+const delay = votanteId.startsWith('fake_') ? 2000 : 30000;
 gameTimers[roomCode + '_vote'] = setTimeout(() => {
 const r = rooms[roomCode];
 if (!r || r.status !== 'voting' || r.votanteAtual !== votanteId) return;
