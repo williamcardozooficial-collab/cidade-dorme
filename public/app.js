@@ -446,7 +446,7 @@ function mostrarNotifChat(msg) {
   div.className = 'chat-notif';
   const nome = document.createElement('span');
   nome.className = 'chat-notif-nome';
-  nome.textContent = (msg.isEspectador ? '👁 ' : '') + msg.nomeUsuario + ':';
+  nome.textContent = (msg.isSpectator ? '👁 ' : '') + msg.nomeUsuario + ':';
   const texto = document.createElement('span');
   texto.className = 'chat-notif-texto';
   texto.textContent = msg.texto;
@@ -497,7 +497,7 @@ function enviarMensagemChat() {
     code: currentRoom.code,
     texto,
     nomeUsuario: currentUser.displayName || currentUser.name,
-    isEspectador: isEspectador || false
+    isSpectator: isSpectator || false
   });
   input.value = '';
   const counter = document.getElementById('chat-char-count');
