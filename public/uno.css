@@ -154,3 +154,16 @@ header{display:flex;justify-content:space-between;align-items:center;padding:12p
 .sala-status-jogo{color:#e63946;font-size:0.8rem}
 /* Responsive */
 @media(max-width:480px){.cards{grid-template-columns:1fr}.uno-card{width:50px;height:75px;font-size:1.3rem}.card-back{width:50px;height:75px}}
+
+/* Timer */
+.turno-timer-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;margin:4px 0}
+.turno-timer{font-size:1.6rem;font-weight:900;color:#fff;min-width:40px;text-align:center;transition:color 0.3s}
+.turno-timer-track{width:200px;max-width:80vw;height:6px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden}
+.turno-timer-bar{height:100%;width:100%;border-radius:4px;background:#4cff80;transition:width 1s linear,background 0.3s}
+/* Player eliminado */
+.player-bubble.eliminado{opacity:0.4;filter:grayscale(100%)}
+/* Card jogavel pulse */
+.uno-card.jogavel{animation:card-pulse 1.5s ease-in-out infinite alternate}
+@keyframes card-pulse{from{box-shadow:0 0 6px rgba(255,255,255,0.3)}to{box-shadow:0 0 16px rgba(255,255,255,0.8),0 0 6px rgba(255,220,0,0.6)}}
+/* Turno info aprimorado */
+.turno-info{text-align:center;font-size:1rem;font-weight:700;padding:8px 20px;border-radius:20px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15)}
