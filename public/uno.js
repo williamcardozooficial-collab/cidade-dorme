@@ -170,8 +170,8 @@ function renderMinhaMao(cartas) {
     const el = criarCartaEl(carta, jogavel);
     el.addEventListener('click', () => {
       if (aguardandoCorEscolha) return;
-      if (!isMyTurn) { toast('Aguarde sua vez!'); return; }
-      if (!podeJogar(carta)) { toast('Esta carta nao pode ser jogada agora.'); return; }
+      if (!isMyTurn) { return; }
+      if (!podeJogar(carta)) { return; }
       jogarCarta(carta);
     });
     maoEl.appendChild(el);
@@ -363,7 +363,7 @@ socket.on('uno-jogo-iniciado', (data) => {
   corAtual = null;
   descarteAtual = null;
   showGame(data.room);
-  toast('Jogo iniciado! Boa sorte!', 'ok');
+  
 });
 
 socket.on('uno-estado', (data) => {
@@ -375,44 +375,17 @@ socket.on('uno-estado', (data) => {
   atualizarEstado(data);
 });
 
-socket.on('uno-carta-comprada', (data) => {
-  if (currentUser && data.jogadorId === currentUser.id) {
-    toast('Voce comprou ' + (data.quantidade || 1) + ' carta(s)!');
-  } else {
-    toast((data.jogadorNome || 'Jogador') + ' comprou ' + (data.quantidade || 1) + ' carta(s)');
-  }
-});
+socket.on('uno-carta-comprada', (data) => { /* sem notificacao */ });;
 
-socket.on('uno-carta-jogada', (data) => {
-  // Feedback visual imediato
-  if (currentUser && data.jogadorId !== currentUser.id) {
-    toast((data.jogadorNome || 'Jogador') + ' jogou uma carta!');
-  }
-});
+socket.on('uno-carta-jogada', (data) => { /* sem notificacao */ });;
 
-socket.on('uno-efeito', (data) => {
-  const msgs = {
-    pular:    '🚫 ' + (data.alvoNome || 'Jogador') + ' foi pulado!',
-    inverter: '🔄 Ordem invertida!',
-    mais2:    '+2 ' + (data.alvoNome || 'Jogador') + ' comprou 2 cartas!',
-    mais4:    '+4 ' + (data.alvoNome || 'Jogador') + ' comprou 4 cartas!',
-    curinga:  '⭐ Cor mudada para ' + (COR_EMOJI[data.corEscolhida] || '') + ' ' + (data.corEscolhida || ''),
-    venceu:   '🏆 ' + (data.jogadorNome || 'Jogador') + ' terminou as cartas!'
-  };
-  if (msgs[data.tipo]) toast(msgs[data.tipo], data.tipo === 'venceu' ? 'ok' : null);
-});
+socket.on('uno-efeito', (data) => { /* sem notificacao */ });;
 
-socket.on('uno-turno-automatico', (data) => {
-  toast('⏱️ Tempo esgotado! Jogada automatica para ' + (data.jogadorNome || 'jogador') + '.', 'erro');
-});
+socket.on('uno-turno-automatico', (data) => { /* sem notificacao */ });;
 
-socket.on('uno-uno', (data) => {
-  toast('🗣️ ' + (data.nome || 'Alguem') + ' gritou UNO!', 'ok');
-});
+socket.on('uno-uno', (data) => { /* sem notificacao */ });;
 
-socket.on('uno-penalidade', (data) => {
-  toast('⚠️ ' + (data.nome || 'Alguem') + ' levou +2 por nao gritar UNO!', 'erro');
-});
+socket.on('uno-penalidade', (data) => { /* sem notificacao */ });;
 
 socket.on('uno-fim', (data) => { showEnd(data); });
 
