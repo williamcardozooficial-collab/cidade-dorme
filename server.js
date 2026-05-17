@@ -610,6 +610,8 @@ res.json({ ok: true });
 // ============================================================
 const unoRooms = {};
 const unoSocketUsers = {};
+const unoTurnTimers = {};
+const UNO_TURN_SECONDS = 15;
 
 function generateUnoCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -677,6 +679,50 @@ function avancarVezUno(room, pular) {
   room.vezIdx = ((room.vezIdx + (room.direcao * steps)) % ativos.length + ativos.length) % ativos.length;
 }
 
+function pararTimerUno(roomCode) {
+  if (unoTurnTimers[roomCode]) { clearTimeout(unoTurnTimers[roomCode]); delete unoTurnTimers[roomCode]; }
+}
+
+function iniciarTimerTurnoUno(roomCode) {
+  pararTimerUno(roomCode);
+  unoTurnTimers[roomCode] = setTimeout(() => {
+    const room = unoRooms[roomCode];
+    if (!room || room.status !== 'playing') return;
+    const vez = getVezAtualUno(room);
+    if (!vez) return;
+    // Jogada automatica: tenta jogar a primeira carta compativel
+    const descarteTopo = room.descarte[room.descarte.length - 1];
+    const cartaCompativel = (vez.mao || []).find(c => cartaCompativelUno(c, descarteTopo, room.corAtual));
+    io.to(roomCode).emit('uno-turno-automatico', { jogadorId: vez.id, jogadorNome: vez.name });
+    if (cartaCompativel) {
+      // Jogar carta automaticamente
+      vez.mao.splice(vez.mao.indexOf(cartaCompativel), 1);
+      room.descarte.push(cartaCompativel);
+      if (cartaCompativel.cor !== 'preto') room.corAtual = cartaCompativel.cor;
+      else {
+        // Curinga: escolhe a cor mais frequente na mao do jogador
+        const cores = ['vermelho','azul','verde','amarelo'];
+        const counts = {};
+        (vez.mao || []).forEach(c => { if (c.cor !== 'preto') counts[c.cor] = (counts[c.cor] || 0) + 1; });
+        const melhorCor = cores.reduce((a, b) => (counts[b] || 0) > (counts[a] || 0) ? b : a, 'vermelho');
+        room.corAtual = melhorCor;
+      }
+      io.to(roomCode).emit('uno-carta-jogada', { jogadorId: vez.id, jogadorNome: vez.name, carta: cartaCompativel, automatico: true });
+      if (verificarVitoriaUno(roomCode)) return;
+      aplicarEfeitoUno(room, cartaCompativel, room.corAtual, roomCode);
+    } else {
+      // Comprar carta automaticamente
+      let carta;
+      if (room.deck.length > 0) { carta = room.deck.pop(); }
+      else { const topo = room.descarte.pop(); room.deck = room.descarte.reverse(); room.descarte = [topo]; for (let i = room.deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i+1)); [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]]; } carta = room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now(), cor:'vermelho', valor:'0' }; }
+      vez.mao.push(carta);
+      io.to(roomCode).emit('uno-carta-comprada', { jogadorId: vez.id, jogadorNome: vez.name, quantidade: 1 });
+      avancarVezUno(room, false);
+    }
+    emitirEstadoUno(roomCode);
+  }, UNO_TURN_SECONDS * 1000);
+}
+
 function emitirEstadoUno(roomCode) {
   const room = unoRooms[roomCode];
   if (!room || room.status !== 'playing') return;
@@ -686,9 +732,10 @@ function emitirEstadoUno(roomCode) {
   room.players.forEach(p => {
     const sid = Object.keys(unoSocketUsers).find(s => unoSocketUsers[s].userId === p.id && unoSocketUsers[s].roomCode === roomCode);
     if (sid) {
-      io.to(sid).emit('uno-estado', { vezId: vez ? vez.id : null, vezNome: vez ? vez.name : '', descarte: descarteTopo, corAtual: room.corAtual, deckCount: room.deck.length, playersInfo, minhasMao: p.mao || [] });
+      io.to(sid).emit('uno-estado', { vezId: vez ? vez.id : null, vezNome: vez ? vez.name : '', descarte: descarteTopo, corAtual: room.corAtual, deckCount: room.deck.length, playersInfo, minhasMao: p.mao || [], segundosRestantes: UNO_TURN_SECONDS });
     }
   });
+  iniciarTimerTurnoUno(roomCode);
 }
 
 function verificarVitoriaUno(roomCode) {
@@ -703,6 +750,7 @@ function verificarVitoriaUno(roomCode) {
     if (restantes.length <= 1) {
       const ultimo = restantes[0];
       if (ultimo) room.ranking.push({ id: ultimo.id, name: ultimo.name, photo: ultimo.photo, cartas: (ultimo.mao || []).length });
+      pararTimerUno(roomCode);
       room.status = 'ended';
       io.to(roomCode).emit('uno-fim', { vencedor: room.ranking[0], ranking: room.ranking });
       return true;
@@ -774,7 +822,7 @@ app.delete('/api/uno/:code/leave', (req, res) => {
   const room = unoRooms[code];
   if (!room) return res.status(200).json({ ok: true });
   room.players = room.players.filter(p => p.id !== req.user.id);
-  if (room.players.length === 0) { delete unoRooms[code]; return res.json({ ok: true }); }
+  if (room.players.length === 0) { pararTimerUno(code); delete unoRooms[code]; return res.json({ ok: true }); }
   if (room.host === req.user.id) { const nh = room.players[0]; room.host = nh.id; nh.isHost = true; }
   io.to(code).emit('uno-room-update', room);
   res.json({ ok: true });
@@ -800,6 +848,7 @@ app.post('/api/uno/:code/jogar', (req, res) => {
   if (!vez || vez.id !== req.user.id) return res.status(403).json({ error: 'Nao e sua vez' });
   const jogador = room.players.find(p => p.id === req.user.id);
   if (!jogador) return res.status(404).json({ error: 'Jogador nao encontrado' });
+  pararTimerUno(code);
   const { cartaId, corEscolhida } = req.body;
   const cartaIdx = jogador.mao.findIndex(c => c.id === cartaId);
   if (cartaIdx === -1) return res.status(400).json({ error: 'Carta nao encontrada' });
@@ -827,6 +876,7 @@ app.post('/api/uno/:code/comprar', (req, res) => {
   if (!vez || vez.id !== req.user.id) return res.status(403).json({ error: 'Nao e sua vez' });
   const jogador = room.players.find(p => p.id === req.user.id);
   if (!jogador) return res.status(404).json({ error: 'Jogador nao encontrado' });
+  pararTimerUno(code);
   let carta;
   if (room.deck.length > 0) { carta = room.deck.pop(); }
   else { const topo = room.descarte.pop(); room.deck = room.descarte.reverse(); room.descarte = [topo]; for (let i = room.deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i+1)); [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]]; } carta = room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now(), cor:'vermelho', valor:'0' }; }
@@ -853,6 +903,7 @@ app.post('/api/uno/:code/restart', (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
   const room = unoRooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
+  pararTimerUno(req.params.code.toUpperCase());
   room.status = 'waiting'; room.deck = []; room.descarte = []; room.corAtual = null; room.direcao = 1; room.vezIdx = 0; room.ranking = [];
   room.players.forEach(p => { p.mao = []; p.unoGritado = false; p.eliminado = false; });
   if (!room.players.find(p => p.id === room.host)) { const nh = room.players[0]; if (nh) { room.host = nh.id; nh.isHost = true; } }
