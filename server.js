@@ -604,6 +604,7 @@ io.to(req.params.code.toUpperCase()).emit('vote-cast', { votanteId: userId, alvo
 room.votacaoIndex++; iniciarTurnoVotacao(req.params.code.toUpperCase());
 res.json({ ok: true });
 });
+app.get('/uno', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'uno.html')); });
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 const socketUsers = {};
 io.on('connection', (socket) => {
@@ -1010,7 +1011,5 @@ io.on('connection', (socket) => {
   });
 });
 
-// Rota para servir uno.html
-app.get('/uno', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'uno.html')); });
 
 // deploy trigger
