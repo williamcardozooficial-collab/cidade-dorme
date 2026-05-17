@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UNO - Cidade Dorme</title>
+<link rel="stylesheet" href="uno.css">
+</head>
+<body>
+<div id="login-screen" class="screen active">
+<div class="bg-stars"></div>
+<div class="login-box">
+<span class="moon-wrap">UNO</span>
+<h1>UNO</h1>
+<p class="tagline">O classico jogo de cartas!</p>
+<button class="btn-google" onclick="window.location.href='/auth/google'">Entrar com Google</button>
+<a href="/" class="btn-voltar-home">Voltar para Cidade Dorme</a>
+</div>
+</div>
+<div id="home-screen" class="screen">
+<header><div class="header-left">UNO</div><div class="header-right"><img id="user-avatar" src="" alt="" style="display:none;width:36px;height:36px;border-radius:50%;"><span id="user-name"></span><a href="/" class="btn-sair">Cidade Dorme</a><a href="/auth/logout" class="btn-sair">Sair</a></div></header>
+<main class="home-main"><h2>Bem-vindo, <span id="welcome-name"></span>!</h2><div class="cards"><div class="card" id="card-criar"><div class="card-icon">UNO</div><div class="card-title">Criar Sala</div><div class="card-desc">Crie uma nova sala de UNO</div></div><div class="card" id="card-entrar"><div class="card-icon">Entrar</div><div class="card-title">Entrar em Sala</div><div class="card-desc">Entre em uma sala existente</div></div></div></main>
+</div>
+<div id="join-screen" class="screen">
+<header><div class="header-left">UNO</div><div class="header-right"><button id="btn-voltar-join" class="btn-sair">Voltar</button></div></header>
+<main class="join-main"><div class="join-busca"><input id="input-codigo" type="text" placeholder="Codigo da sala..." maxlength="6" class="input-codigo"><button id="btn-buscar-codigo" class="btn-buscar">Entrar</button></div><div class="salas-header"><h3>Salas Abertas</h3><button id="btn-atualizar" class="btn-refresh">Atualizar</button></div><div id="salas-lista" class="salas-lista"><div class="salas-loading">Carregando...</div></div></main>
+</div>
+<div id="room-screen" class="screen">
+<header><div class="header-left">UNO</div><div class="header-right"><button id="btn-sair-sala" class="btn-sair">Sair da Sala</button></div></header>
+<main class="room-main">
+<div class="room-header"><div class="room-code-box"><span class="room-code-label">Codigo</span><span id="room-code" class="room-code-value">------</span><button class="btn-copy-code" onclick="copiarCodigo()" title="Copiar">Copiar</button></div><div class="room-info"><span>Jogadores: <strong id="room-players-count">0</strong></span></div></div>
+<div class="players-grid" id="players-list"></div>
+<button id="btn-start" class="btn-start" style="display:none">Iniciar UNO</button>
+</main>
+</div>
+<div id="game-screen" class="screen">
+<header class="game-header"><div class="header-left">UNO</div><div class="header-right"><button id="btn-sair-jogo" class="btn-sair">Sair</button></div></header>
+<main class="uno-main">
+<div id="players-info-bar" class="players-info-bar"></div>
+<div class="mesa-center">
+<div class="deck-area"><div id="btn-comprar" class="uno-deck" title="Comprar carta"><div class="card-back">UNO</div><span class="deck-count" id="deck-count">108</span></div></div>
+<div class="discard-area"><div id="discard-pile" class="discard-pile"><div class="card-placeholder">Aguardando...</div></div><div id="cor-atual-badge" class="cor-atual-badge" style="display:none"></div></div>
+</div>
+<div id="turno-info" class="turno-info">Aguardando inicio...</div>
+<div id="btn-uno-wrap" class="btn-uno-wrap" style="display:none"><button id="btn-uno" class="btn-uno-shout">UNO!</button></div>
+<div id="color-picker" class="color-picker" style="display:none">
+<div class="color-picker-title">Escolha uma cor:</div>
+<div class="color-picker-btns">
+<button class="btn-color red" onclick="escolherCor('vermelho')">Vermelho</button>
+<button class="btn-color blue" onclick="escolherCor('azul')">Azul</button>
+<button class="btn-color green" onclick="escolherCor('verde')">Verde</button>
+<button class="btn-color yellow" onclick="escolherCor('amarelo')">Amarelo</button>
+</div>
+</div>
+<div class="minha-mao-wrap"><div class="minha-mao-label">Suas cartas (<span id="minha-contagem">0</span>)</div><div id="minha-mao" class="minha-mao"></div></div>
+</main>
+</div>
+<div id="end-screen" class="screen">
+<main class="decision-main"><div class="game-stars"></div><div class="decision-content"><div id="end-icon" class="result-icon">Fim!</div><div id="end-title" class="result-title">Fim de Jogo!</div><div id="end-sub" class="result-sub"></div><div id="end-ranking" class="end-ranking"></div><div class="decision-btns"><button id="btn-jogar-novamente" class="btn-decision-sim">Jogar Novamente</button><button id="btn-sair-fim" class="btn-decision-nao">Sair</button></div></div></main>
+</div>
+<div id="toast-container" class="toast-container"></div>
+<div id="chat-icone" class="chat-icone" style="display:none">Chat</div>
+<div id="chat-painel" class="chat-painel" style="display:none"><div class="chat-painel-row"><input id="chat-input" type="text" maxlength="50" placeholder="Mensagem..." class="chat-painel-input" autocomplete="off"><button id="chat-enviar" class="chat-painel-btn">Enviar</button></div></div>
+<div id="chat-notifs" class="chat-notifs"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="uno.js"></script>
+</body>
+</html>
