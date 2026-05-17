@@ -739,26 +739,25 @@ function emitirEstadoUno(roomCode) {
 }
 
 function verificarVitoriaUno(roomCode) {
-  const room = unoRooms[roomCode];
-  if (!room) return false;
-  const zerou = room.players.filter(p => !p.eliminado).find(p => p.mao && p.mao.length === 0);
-  if (zerou) {
-    zerou.eliminado = true;
-    room.ranking.unshift({ id: zerou.id, name: zerou.name, photo: zerou.photo, cartas: 0 });
-    io.to(roomCode).emit('uno-efeito', { tipo: 'venceu', jogadorNome: zerou.name });
-    const restantes = room.players.filter(p => !p.eliminado);
-    if (restantes.length <= 1) {
-      const ultimo = restantes[0];
-      if (ultimo) room.ranking.push({ id: ultimo.id, name: ultimo.name, photo: ultimo.photo, cartas: (ultimo.mao || []).length });
-      pararTimerUno(roomCode);
-      room.status = 'ended';
-      io.to(roomCode).emit('uno-fim', { vencedor: room.ranking[0], ranking: room.ranking });
-      return true;
-    }
-    room.vezIdx = room.vezIdx % restantes.length;
-    return false;
-  }
-  return false;
+const room = unoRooms[roomCode];
+if (!room) return false;
+const ativos = room.players.filter(p => !p.eliminado);
+const vencedor = ativos.find(p => p.mao && p.mao.length === 0);
+if (vencedor) {
+// Para o timer do turno
+pararTimerUno(roomCode);
+// Monta ranking: vencedor em 1o lugar, resto ordenado por menos cartas
+const outros = ativos.filter(p => p.id !== vencedor.id).sort((a, b) => (a.mao || []).length - (b.mao || []).length);
+const ranking = [{ id: vencedor.id, name: vencedor.name, photo: vencedor.photo, cartas: 0 }, ...outros.map(p => ({ id: p.id, name: p.name, photo: p.photo, cartas: (p.mao || []).length }))];
+room.status = 'ended';
+room.ranking = ranking;
+io.to(roomCode).emit('uno-efeito', { tipo: 'venceu', jogadorNome: vencedor.name });
+setTimeout(() => {
+io.to(roomCode).emit('uno-fim', { vencedor: ranking[0], ranking });
+}, 1500);
+return true;
+}
+return false;
 }
 
 function cartaCompativelUno(carta, descarte, corAtual) {
