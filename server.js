@@ -888,7 +888,7 @@ if (!textoLimitado.trim()) return;
 const msg = { nomeUsuario: nomeUsuario || 'Jogador', texto: textoLimitado, isEspectador: !!isEspectador, ts: Date.now() };
 io.to(code).emit('chat-mensagem', msg);
 });
-socket.on('socket.on('uno-join-room', ({ code, userId }) => {
+socket.on('uno-join-room', ({ code, userId }) => {
 socket.join(code);
 unoSocketUsers[socket.id] = { userId, roomCode: code };
 const room = unoRooms[code];
@@ -897,7 +897,7 @@ if (room) {
   if (room.status === 'playing') emitirEstadoUno(code);
 }
 });
-disconnect', () => {
+socket.on('disconnect', () => {
 const info = socketUsers[socket.id];
 if (info) {
 if (info.asSpectator) { const room = rooms[info.roomCode]; if (room) { room.spectators = Math.max(0, (room.spectators || 1) - 1); emitSpectatorCount(info.roomCode); } }
