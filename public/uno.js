@@ -1,12 +1,15 @@
-// UNO Client
+// UNO Client v2 - com timer 15s e cartas corrigidas
 const socket = io();
 let currentUser = null;
 let currentRoom = null;
 let minhasMao = [];
 let vezAtualId = null;
 let corAtual = null;
+let descarteAtual = null;
 let aguardandoCorEscolha = false;
 let cartaEspecialPendente = null;
+let timerInterval = null;
+let timerSegundos = 0;
 
 const COR_EMOJI = { vermelho: '🔴', azul: '🔵', verde: '🟢', amarelo: '🟡' };
 const COR_CLASS = { vermelho: 'vermelho', azul: 'azul', verde: 'verde', amarelo: 'amarelo' };
@@ -23,6 +26,7 @@ async function checkAuth() {
 }
 
 function showHome(user) {
+  pararTimer();
   showScreen('home-screen');
   const name = user.displayName || user.name || 'Jogador';
   const photo = (user.photos && user.photos[0]) ? user.photos[0].value : '';
@@ -40,6 +44,7 @@ function showJoin() {
 }
 
 function showRoom(room) {
+  pararTimer();
   currentRoom = room;
   showScreen('room-screen');
   renderRoom(room);
@@ -54,10 +59,11 @@ function showGame(room) {
 }
 
 function showEnd(data) {
+  pararTimer();
   showScreen('end-screen');
-  document.getElementById('end-icon').textContent = '🏆';
+  document.getElementById('end-icon').textContent = data.vencedor ? '🏆' : '🃏';
   document.getElementById('end-title').textContent = 'Fim de Jogo!';
-  const sub = data.vencedor ? (data.vencedor.name + ' venceu!') : 'Jogo encerrado!';
+  const sub = data.vencedor ? (data.vencedor.name + ' venceu com 0 cartas!') : 'Jogo encerrado!';
   document.getElementById('end-sub').textContent = sub;
   const rankEl = document.getElementById('end-ranking');
   rankEl.innerHTML = '';
@@ -66,7 +72,7 @@ function showEnd(data) {
       const div = document.createElement('div');
       div.className = 'end-ranking-item';
       const medals = ['🥇','🥈','🥉'];
-      div.innerHTML = '<span class="end-rank-num">' + (medals[i] || (i+1)+'°') + '</span><span class="end-rank-name">' + p.name + '</span><span class="end-rank-cards">' + p.cartas + ' cartas restantes</span>';
+      div.innerHTML = '<span class="end-rank-num">' + (medals[i] || (i+1)+'°') + '</span><span class="end-rank-name">' + p.name + '</span><span class="end-rank-cards">' + p.cartas + ' cartas</span>';
       rankEl.appendChild(div);
     });
   }
@@ -81,7 +87,8 @@ function renderRoom(room) {
     const div = document.createElement('div');
     div.className = 'player-item';
     const initials = p.name.charAt(0).toUpperCase();
-    div.innerHTML = p.photo ? '<img src="' + p.photo + '" class="player-avatar-img"><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span></div>'
+    div.innerHTML = p.photo
+      ? '<img src="' + p.photo + '" class="player-avatar-img"><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span></div>'
       : '<div class="player-avatar-placeholder">' + initials + '</div><div class="player-info"><span class="player-name">' + p.name + (p.isHost ? ' <span class="host-badge">HOST</span>' : '') + '</span></div>';
     list.appendChild(div);
   });
@@ -94,13 +101,45 @@ function renderRoom(room) {
   } else { startBtn.style.display = 'none'; }
 }
 
+// ===== TIMER =====
+function iniciarTimer(segundos) {
+  pararTimer();
+  timerSegundos = segundos;
+  const el = document.getElementById('turno-timer');
+  const bar = document.getElementById('turno-timer-bar');
+  if (el) { el.style.display = 'block'; el.textContent = timerSegundos + 's'; }
+  if (bar) { bar.style.width = '100%'; bar.style.background = '#4cff80'; }
+  timerInterval = setInterval(() => {
+    timerSegundos--;
+    if (el) {
+      el.textContent = timerSegundos + 's';
+      el.style.color = timerSegundos <= 5 ? '#ff4444' : timerSegundos <= 10 ? '#ffaa00' : '#fff';
+    }
+    if (bar) {
+      const pct = (timerSegundos / segundos) * 100;
+      bar.style.width = pct + '%';
+      bar.style.background = timerSegundos <= 5 ? '#ff4444' : timerSegundos <= 10 ? '#ffaa00' : '#4cff80';
+    }
+    if (timerSegundos <= 0) { pararTimer(); }
+  }, 1000);
+}
+
+function pararTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  const el = document.getElementById('turno-timer');
+  const bar = document.getElementById('turno-timer-bar');
+  if (el) el.style.display = 'none';
+  if (bar) bar.style.width = '0%';
+}
+
+// ===== RENDER PLAYERS =====
 function renderPlayersBar(playersInfo) {
   const bar = document.getElementById('players-info-bar');
   if (!bar) return;
   bar.innerHTML = '';
   playersInfo.forEach(p => {
     const div = document.createElement('div');
-    div.className = 'player-bubble' + (p.id === vezAtualId ? ' vez-atual' : '');
+    div.className = 'player-bubble' + (p.id === vezAtualId ? ' vez-atual' : '') + (p.eliminado ? ' eliminado' : '');
     div.id = 'bubble-' + p.id;
     const avatarHtml = p.photo ? '<img src="' + p.photo + '" alt="">' : '<div class="pb-avatar">' + p.name.charAt(0) + '</div>';
     const unoTag = p.cartas === 1 ? '<span class="pb-uno">UNO!</span>' : '';
@@ -109,25 +148,42 @@ function renderPlayersBar(playersInfo) {
   });
 }
 
+// ===== RENDER MAO =====
+function podeJogar(carta) {
+  if (!descarteAtual && !corAtual) return false;
+  if (carta.cor === 'preto') return true;
+  if (corAtual && carta.cor === corAtual) return true;
+  if (descarteAtual && carta.valor === descarteAtual.valor) return true;
+  return false;
+}
+
 function renderMinhaMao(cartas) {
   minhasMao = cartas;
   const maoEl = document.getElementById('minha-mao');
+  if (!maoEl) return;
   maoEl.innerHTML = '';
-  document.getElementById('minha-contagem').textContent = cartas.length;
+  const contEl = document.getElementById('minha-contagem');
+  if (contEl) contEl.textContent = cartas.length;
   const isMyTurn = currentUser && vezAtualId === currentUser.id;
   cartas.forEach(carta => {
-    const el = criarCartaEl(carta, isMyTurn && podeJogar(carta));
-    el.addEventListener('click', () => { if (!isMyTurn) { toast('Aguarde sua vez!'); return; } if (!podeJogar(carta)) { toast('Nao pode jogar esta carta agora.'); return; } jogarCarta(carta); });
+    const jogavel = isMyTurn && podeJogar(carta);
+    const el = criarCartaEl(carta, jogavel);
+    el.addEventListener('click', () => {
+      if (aguardandoCorEscolha) return;
+      if (!isMyTurn) { toast('Aguarde sua vez!'); return; }
+      if (!podeJogar(carta)) { toast('Esta carta nao pode ser jogada agora.'); return; }
+      jogarCarta(carta);
+    });
     maoEl.appendChild(el);
   });
-  // Mostrar botao UNO se tiver 2 cartas (antes de jogar ultima)
+  // Botao UNO
   const btnUnoWrap = document.getElementById('btn-uno-wrap');
   if (btnUnoWrap) btnUnoWrap.style.display = isMyTurn && cartas.length === 2 ? 'flex' : 'none';
 }
 
 function criarCartaEl(carta, jogavel) {
   const el = document.createElement('div');
-  const corClass = carta.cor === 'preto' || carta.cor === 'especial' ? 'preto' : (COR_CLASS[carta.cor] || 'preto');
+  const corClass = (carta.cor === 'preto' || carta.cor === 'especial') ? 'preto' : (COR_CLASS[carta.cor] || 'preto');
   el.className = 'uno-card ' + corClass + (jogavel ? ' jogavel' : ' disabled');
   const val = getCartaDisplay(carta);
   el.innerHTML = '<span class="card-val">' + val.icon + '</span>' + (val.label ? '<span class="card-label">' + val.label + '</span>' : '');
@@ -137,18 +193,19 @@ function criarCartaEl(carta, jogavel) {
 
 function getCartaDisplay(carta) {
   const v = carta.valor;
-  if (v === 'pular') return { icon: '🚫', label: 'Pular' };
+  if (v === 'pular')    return { icon: '🚫', label: 'Pular' };
   if (v === 'inverter') return { icon: '🔄', label: 'Inv.' };
-  if (v === 'mais2') return { icon: '+2', label: '' };
-  if (v === 'curinga') return { icon: '⭐', label: 'Cor' };
-  if (v === 'mais4') return { icon: '+4', label: '' };
+  if (v === 'mais2')    return { icon: '+2',  label: '' };
+  if (v === 'curinga')  return { icon: '⭐',  label: 'Cor' };
+  if (v === 'mais4')    return { icon: '+4',  label: '' };
   return { icon: v, label: '' };
 }
 
 function renderDescarte(carta, corVigorante) {
   const pile = document.getElementById('discard-pile');
+  if (!pile) return;
   if (!carta) { pile.innerHTML = '<div class="card-placeholder">Aguardando...</div>'; return; }
-  const corDisplay = carta.cor === 'preto' ? corVigorante : carta.cor;
+  const corDisplay = (carta.cor === 'preto') ? corVigorante : carta.cor;
   const corClass = corDisplay ? (COR_CLASS[corDisplay] || 'preto') : 'preto';
   const val = getCartaDisplay(carta);
   pile.innerHTML = '';
@@ -157,68 +214,62 @@ function renderDescarte(carta, corVigorante) {
   el.style.cursor = 'default';
   el.innerHTML = '<span class="card-val">' + val.icon + '</span>' + (val.label ? '<span class="card-label">' + val.label + '</span>' : '');
   pile.appendChild(el);
-
   const badge = document.getElementById('cor-atual-badge');
   if (badge) {
     if (corVigorante && corVigorante !== 'preto') {
       badge.textContent = COR_EMOJI[corVigorante] + ' ' + corVigorante.charAt(0).toUpperCase() + corVigorante.slice(1);
       badge.className = 'cor-atual-badge ' + (COR_CLASS[corVigorante] || '');
       badge.style.display = 'block';
-    } else {
-      badge.style.display = 'none';
-    }
+    } else { badge.style.display = 'none'; }
   }
 }
 
-function podeJogar(carta) {
-  if (!currentRoom || !currentRoom.jogo) return false;
-  const desc = currentRoom.jogo.descarte;
-  const cor = corAtual || (desc ? desc.cor : null);
-  if (carta.cor === 'preto') return true;
-  if (desc && carta.valor === desc.valor) return true;
-  if (cor && carta.cor === cor) return true;
-  return false;
-}
-
+// ===== ACOES =====
 async function jogarCarta(carta) {
   if (!currentRoom) return;
   if (carta.cor === 'preto') {
-    // Mostrar color picker
     cartaEspecialPendente = carta;
     aguardandoCorEscolha = true;
     document.getElementById('color-picker').style.display = 'block';
     return;
   }
-  enviarJogada(carta.id, null);
+  await enviarJogada(carta.id, null);
 }
 
 async function escolherCor(cor) {
   document.getElementById('color-picker').style.display = 'none';
   if (!aguardandoCorEscolha || !cartaEspecialPendente) return;
   aguardandoCorEscolha = false;
-  enviarJogada(cartaEspecialPendente.id, cor);
+  const id = cartaEspecialPendente.id;
   cartaEspecialPendente = null;
+  await enviarJogada(id, cor);
 }
 
 async function enviarJogada(cartaId, corEscolhida) {
   if (!currentRoom) return;
+  // Desabilitar todas as cartas durante o envio
+  document.querySelectorAll('.uno-card.jogavel').forEach(c => c.classList.remove('jogavel'));
   const body = { cartaId };
   if (corEscolhida) body.corEscolhida = corEscolhida;
-  const res = await fetch('/api/uno/' + currentRoom.code + '/jogar', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const data = await res.json();
-  if (data.error) toast('Erro: ' + data.error);
+  try {
+    const res = await fetch('/api/uno/' + currentRoom.code + '/jogar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.error) { toast('Erro: ' + data.error, 'erro'); renderMinhaMao(minhasMao); }
+  } catch(e) { toast('Erro de conexao', 'erro'); renderMinhaMao(minhasMao); }
 }
 
 async function comprarCarta() {
   if (!currentRoom) return;
   if (currentUser && vezAtualId !== currentUser.id) { toast('Nao e sua vez!'); return; }
-  const res = await fetch('/api/uno/' + currentRoom.code + '/comprar', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-  const data = await res.json();
-  if (data.error) toast('Erro: ' + data.error);
+  try {
+    const res = await fetch('/api/uno/' + currentRoom.code + '/comprar', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (data.error) toast('Erro: ' + data.error, 'erro');
+  } catch(e) { toast('Erro de conexao', 'erro'); }
 }
 
 async function gritarUno() {
@@ -226,34 +277,32 @@ async function gritarUno() {
   await fetch('/api/uno/' + currentRoom.code + '/uno', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 }
 
-function atualizarTurno(data) {
+// ===== ATUALIZAR ESTADO =====
+function atualizarEstado(data) {
   vezAtualId = data.vezId;
   corAtual = data.corAtual;
-  document.getElementById('deck-count').textContent = data.deckCount || '?';
-  const turnoEl = document.getElementById('turno-info');
+  descarteAtual = data.descarte || null;
+  const deckEl = document.getElementById('deck-count');
+  if (deckEl) deckEl.textContent = data.deckCount || '?';
   const isMyTurn = currentUser && data.vezId === currentUser.id;
-  if (isMyTurn) { turnoEl.textContent = '🃏 SUA VEZ!'; turnoEl.style.color = '#f4d03f'; }
-  else { const nome = data.vezNome || 'Jogador'; turnoEl.textContent = 'Vez de ' + nome; turnoEl.style.color = '#fff'; }
+  // Turno info
+  const turnoEl = document.getElementById('turno-info');
+  if (turnoEl) {
+    if (isMyTurn) { turnoEl.textContent = '🃏 SUA VEZ! Jogue uma carta ou compre.'; turnoEl.style.color = '#f4d03f'; }
+    else { turnoEl.textContent = 'Vez de ' + (data.vezNome || 'Jogador'); turnoEl.style.color = '#ccc'; }
+  }
   renderDescarte(data.descarte, data.corAtual);
   if (data.playersInfo) renderPlayersBar(data.playersInfo);
   if (data.minhasMao) renderMinhaMao(data.minhasMao);
-  else renderMinhaMaoDesatualizada();
+  // Timer
+  if (isMyTurn && data.segundosRestantes > 0) {
+    iniciarTimer(data.segundosRestantes);
+  } else {
+    pararTimer();
+  }
 }
 
-function renderMinhaMaoDesatualizada() {
-  const isMyTurn = currentUser && vezAtualId === currentUser.id;
-  const maoEl = document.getElementById('minha-mao');
-  maoEl.innerHTML = '';
-  minhasMao.forEach(carta => {
-    const el = criarCartaEl(carta, isMyTurn && podeJogar(carta));
-    el.addEventListener('click', () => { if (!isMyTurn) { toast('Aguarde sua vez!'); return; } if (!podeJogar(carta)) { toast('Nao pode jogar esta carta agora.'); return; } jogarCarta(carta); });
-    maoEl.appendChild(el);
-  });
-  document.getElementById('minha-contagem').textContent = minhasMao.length;
-  const btnUnoWrap = document.getElementById('btn-uno-wrap');
-  if (btnUnoWrap) btnUnoWrap.style.display = isMyTurn && minhasMao.length === 2 ? 'flex' : 'none';
-}
-
+// ===== UTILS =====
 function toast(msg, tipo) {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -271,6 +320,7 @@ function copiarCodigo() {
   navigator.clipboard.writeText(currentRoom.code).then(() => toast('Codigo copiado!', 'ok')).catch(() => toast('Erro ao copiar'));
 }
 
+// ===== SALAS =====
 async function carregarSalas() {
   const lista = document.getElementById('salas-lista');
   lista.innerHTML = '<div class="salas-loading">Carregando...</div>';
@@ -283,8 +333,8 @@ async function carregarSalas() {
     salas.forEach(sala => {
       const div = document.createElement('div');
       div.className = 'sala-item';
-      const statusLabel = sala.status === 'waiting' ? '<span class="sala-status-aguardando">⏳ Aguardando</span>' : '<span class="sala-status-jogo">🃏 Em jogo</span>';
-      div.innerHTML = '<div class="sala-info"><span class="sala-codigo">' + sala.code + '</span><span class="sala-host">Host: ' + sala.host + '</span></div><div class="sala-right">' + statusLabel + '<span class="sala-players">👥 ' + sala.players + '</span><button class="btn-entrar-sala" data-code="' + sala.code + '">' + (sala.status === 'waiting' ? 'Entrar' : 'Observar') + '</button></div>';
+      const statusLabel = sala.status === 'waiting' ? '<span class="sala-status-aguardando">Aguardando</span>' : '<span class="sala-status-jogo">Em jogo</span>';
+      div.innerHTML = '<div class="sala-info"><span class="sala-codigo">' + sala.code + '</span><span class="sala-host">Host: ' + sala.host + '</span></div><div class="sala-right">' + statusLabel + '<span class="sala-players">' + sala.players + ' jogadores</span><button class="btn-entrar-sala" data-code="' + sala.code + '">' + (sala.status === 'waiting' ? 'Entrar' : 'Observar') + '</button></div>';
       lista.appendChild(div);
     });
     lista.querySelectorAll('.btn-entrar-sala').forEach(btn => { btn.addEventListener('click', () => entrarNaSala(btn.dataset.code)); });
@@ -298,7 +348,7 @@ async function entrarNaSala(code) {
   showRoom(data.room);
 }
 
-// Socket events
+// ===== SOCKET EVENTS =====
 socket.on('uno-room-update', (room) => {
   if (currentRoom && room.code === currentRoom.code) {
     currentRoom = room;
@@ -308,40 +358,52 @@ socket.on('uno-room-update', (room) => {
 
 socket.on('uno-jogo-iniciado', (data) => {
   currentRoom = data.room;
-  showGame(data.room);
   minhasMao = [];
   vezAtualId = null;
   corAtual = null;
+  descarteAtual = null;
+  showGame(data.room);
   toast('Jogo iniciado! Boa sorte!', 'ok');
 });
 
 socket.on('uno-estado', (data) => {
-  if (!document.getElementById('game-screen').classList.contains('active')) showGame(currentRoom);
-  currentRoom = currentRoom || {};
+  if (!document.getElementById('game-screen').classList.contains('active')) {
+    if (currentRoom) showGame(currentRoom);
+  }
+  if (!currentRoom) currentRoom = {};
   currentRoom.jogo = data;
-  atualizarTurno(data);
-  if (data.minhasMao) { minhasMao = data.minhasMao; renderMinhaMao(data.minhasMao); }
+  atualizarEstado(data);
 });
 
 socket.on('uno-carta-comprada', (data) => {
   if (currentUser && data.jogadorId === currentUser.id) {
-    toast('Você comprou ' + (data.quantidade || 1) + ' carta(s)!');
-    if (data.cartas) { minhasMao = data.cartas; renderMinhaMao(data.cartas); }
+    toast('Voce comprou ' + (data.quantidade || 1) + ' carta(s)!');
   } else {
-    const nome = data.jogadorNome || 'Jogador';
-    toast(nome + ' comprou ' + (data.quantidade || 1) + ' carta(s)');
+    toast((data.jogadorNome || 'Jogador') + ' comprou ' + (data.quantidade || 1) + ' carta(s)');
+  }
+});
+
+socket.on('uno-carta-jogada', (data) => {
+  // Feedback visual imediato
+  if (currentUser && data.jogadorId !== currentUser.id) {
+    toast((data.jogadorNome || 'Jogador') + ' jogou uma carta!');
   }
 });
 
 socket.on('uno-efeito', (data) => {
   const msgs = {
-    pular: '🚫 ' + (data.alvoNome || 'Jogador') + ' foi pulado!',
+    pular:    '🚫 ' + (data.alvoNome || 'Jogador') + ' foi pulado!',
     inverter: '🔄 Ordem invertida!',
-    mais2: '➕ ' + (data.alvoNome || 'Jogador') + ' comprou 2 cartas!',
-    mais4: '➕ ' + (data.alvoNome || 'Jogador') + ' comprou 4 cartas!',
-    curinga: '⭐ Cor mudada para ' + (COR_EMOJI[data.corEscolhida] || '') + ' ' + (data.corEscolhida || '')
+    mais2:    '+2 ' + (data.alvoNome || 'Jogador') + ' comprou 2 cartas!',
+    mais4:    '+4 ' + (data.alvoNome || 'Jogador') + ' comprou 4 cartas!',
+    curinga:  '⭐ Cor mudada para ' + (COR_EMOJI[data.corEscolhida] || '') + ' ' + (data.corEscolhida || ''),
+    venceu:   '🏆 ' + (data.jogadorNome || 'Jogador') + ' terminou as cartas!'
   };
-  if (msgs[data.tipo]) toast(msgs[data.tipo]);
+  if (msgs[data.tipo]) toast(msgs[data.tipo], data.tipo === 'venceu' ? 'ok' : null);
+});
+
+socket.on('uno-turno-automatico', (data) => {
+  toast('⏱️ Tempo esgotado! Jogada automatica para ' + (data.jogadorNome || 'jogador') + '.', 'erro');
 });
 
 socket.on('uno-uno', (data) => {
@@ -349,22 +411,22 @@ socket.on('uno-uno', (data) => {
 });
 
 socket.on('uno-penalidade', (data) => {
-  toast('⚠️ ' + (data.nome || 'Alguem') + ' nao gritou UNO a tempo! +2 cartas!', 'erro');
+  toast('⚠️ ' + (data.nome || 'Alguem') + ' levou +2 por nao gritar UNO!', 'erro');
 });
 
-socket.on('uno-fim', (data) => {
-  showEnd(data);
-});
+socket.on('uno-fim', (data) => { showEnd(data); });
 
 socket.on('uno-sala-fechada', (data) => {
+  pararTimer();
   toast(data.motivo || 'Sala encerrada.', 'erro');
-  currentRoom = null; showHome(currentUser);
+  currentRoom = null;
+  if (currentUser) showHome(currentUser);
+  else showScreen('login-screen');
 });
 
 socket.on('chat-mensagem', (msg) => { mostrarNotifChat(msg); });
 
-// Chat
-let chatAberto = false;
+// ===== CHAT =====
 function mostrarChat() {
   const icone = document.getElementById('chat-icone');
   if (icone) icone.style.display = 'flex';
@@ -391,7 +453,11 @@ function iniciarChat() {
   const input = document.getElementById('chat-input');
   const btn = document.getElementById('chat-enviar');
   if (!icone || !painel || !input || !btn) return;
-  icone.addEventListener('click', () => { const aberto = painel.style.display !== 'none'; painel.style.display = aberto ? 'none' : 'block'; if (!aberto) input.focus(); });
+  icone.addEventListener('click', () => {
+    const aberto = painel.style.display !== 'none';
+    painel.style.display = aberto ? 'none' : 'block';
+    if (!aberto) input.focus();
+  });
   btn.addEventListener('click', enviarChat);
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') enviarChat(); });
 }
@@ -406,7 +472,7 @@ function enviarChat() {
   if (painel) painel.style.display = 'none';
 }
 
-// Eventos de UI
+// ===== EVENTOS UI =====
 document.getElementById('card-criar').addEventListener('click', async () => {
   const res = await fetch('/api/uno/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const data = await res.json();
@@ -421,7 +487,10 @@ document.getElementById('btn-buscar-codigo').addEventListener('click', () => {
   if (!codigo) { toast('Digite o codigo da sala'); return; }
   entrarNaSala(codigo);
 });
-document.getElementById('input-codigo').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('btn-buscar-codigo').click(); document.getElementById('input-codigo').value = document.getElementById('input-codigo').value.toUpperCase(); });
+document.getElementById('input-codigo').addEventListener('keydown', (e) => {
+  document.getElementById('input-codigo').value = document.getElementById('input-codigo').value.toUpperCase();
+  if (e.key === 'Enter') document.getElementById('btn-buscar-codigo').click();
+});
 document.getElementById('btn-sair-sala').addEventListener('click', async () => {
   if (!currentRoom) return;
   await fetch('/api/uno/' + currentRoom.code + '/leave', { method: 'DELETE' });
@@ -429,6 +498,7 @@ document.getElementById('btn-sair-sala').addEventListener('click', async () => {
 });
 document.getElementById('btn-sair-jogo').addEventListener('click', async () => {
   if (!currentRoom) return;
+  pararTimer();
   await fetch('/api/uno/' + currentRoom.code + '/leave', { method: 'DELETE' });
   currentRoom = null; showHome(currentUser);
 });
@@ -444,8 +514,9 @@ document.getElementById('btn-jogar-novamente').addEventListener('click', async (
   if (!currentRoom) return;
   const res = await fetch('/api/uno/' + currentRoom.code + '/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   const data = await res.json();
-  if (data.error) toast(data.error, 'erro');
-  else { showRoom(currentRoom); }
+  if (data.error) { toast(data.error, 'erro'); return; }
+  currentRoom = data.room;
+  showRoom(data.room);
 });
 document.getElementById('btn-sair-fim').addEventListener('click', async () => {
   if (currentRoom) { await fetch('/api/uno/' + currentRoom.code + '/leave', { method: 'DELETE' }); }
