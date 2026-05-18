@@ -642,6 +642,26 @@ function criarBaralhoUno() {
   return cartas;
 }
 
+function sacarCartaUno(room) {
+// Se o deck acabou, embaralha o descarte (exceto o topo) e usa como novo deck
+if (room.deck.length === 0) {
+const topo = room.descarte[room.descarte.length - 1];
+const novasDoCarta = room.descarte.slice(0, room.descarte.length - 1);
+// Embaralha
+for (let i = novasDoCarta.length - 1; i > 0; i--) {
+const j = Math.floor(Math.random() * (i + 1));
+[novasDoCarta[i], novasDoCarta[j]] = [novasDoCarta[j], novasDoCarta[i]];
+}
+room.deck = novasDoCarta;
+room.descarte = [topo];
+}
+// Se ainda vazio (jogo com 1 carta no descarte e deck zerado), cria baralho novo
+if (room.deck.length === 0) {
+room.deck = criarBaralhoUno();
+}
+return room.deck.pop();
+}
+
 function iniciarJogoUno(roomCode) {
   const room = unoRooms[roomCode];
   if (!room) return;
@@ -712,12 +732,10 @@ function iniciarTimerTurnoUno(roomCode) {
       aplicarEfeitoUno(room, cartaCompativel, room.corAtual, roomCode);
     } else {
       // Comprar carta automaticamente
-      let carta;
-      if (room.deck.length > 0) { carta = room.deck.pop(); }
-      else { const topo = room.descarte.pop(); room.deck = room.descarte.reverse(); room.descarte = [topo]; for (let i = room.deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i+1)); [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]]; } carta = room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now(), cor:'vermelho', valor:'0' }; }
+      const carta = sacarCartaUno(room);
       vez.mao.push(carta);
       io.to(roomCode).emit('uno-carta-comprada', { jogadorId: vez.id, jogadorNome: vez.name, quantidade: 1 });
-      avancarVezUno(room, false);
+      avancarVezUno(room, false);ancarVezUno(room, false);
     }
     emitirEstadoUno(roomCode);
   }, UNO_TURN_SECONDS * 1000);
@@ -780,11 +798,11 @@ function aplicarEfeitoUno(room, carta, corEscolhida, roomCode) {
     io.to(roomCode).emit('uno-efeito', { tipo: 'inverter' });
     avancarVezUno(room, false);
   } else if (v === 'mais2') {
-    if (proximo) { for (let i = 0; i < 2; i++) proximo.mao.push(room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now()+i, cor:'vermelho', valor:'0' }); io.to(roomCode).emit('uno-carta-comprada', { jogadorId: proximo.id, jogadorNome: proximo.name, quantidade: 2 }); }
+    if (proximo) { for (let i = 0; i < 2; i++) proximo.mao.push(sacarCartaUno(room)); io.to(roomCode).emit('uno-carta-comprada', { jogadorId: proximo.id, jogadorNome: proximo.name, quantidade: 2 }); }
     avancarVezUno(room, true);
   } else if (v === 'mais4') {
     if (corEscolhida) room.corAtual = corEscolhida;
-    if (proximo) { for (let i = 0; i < 4; i++) proximo.mao.push(room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now()+i, cor:'vermelho', valor:'0' }); io.to(roomCode).emit('uno-carta-comprada', { jogadorId: proximo.id, jogadorNome: proximo.name, quantidade: 4 }); io.to(roomCode).emit('uno-efeito', { tipo: 'mais4', alvoNome: proximo.name, corEscolhida }); }
+    if (proximo) { for (let i = 0; i < 4; i++) proximo.mao.push(sacarCartaUno(room)); io.to(roomCode).emit('uno-carta-comprada', { jogadorId: proximo.id, jogadorNome: proximo.name, quantidade: 4 }); io.to(roomCode).emit('uno-efeito', { tipo: 'mais4', alvoNome: proximo.name, corEscolhida }); }
     avancarVezUno(room, true);
   } else if (v === 'curinga') {
     if (corEscolhida) room.corAtual = corEscolhida;
@@ -876,10 +894,7 @@ app.post('/api/uno/:code/comprar', (req, res) => {
   const jogador = room.players.find(p => p.id === req.user.id);
   if (!jogador) return res.status(404).json({ error: 'Jogador nao encontrado' });
   pararTimerUno(code);
-  let carta;
-  if (room.deck.length > 0) { carta = room.deck.pop(); }
-  else { const topo = room.descarte.pop(); room.deck = room.descarte.reverse(); room.descarte = [topo]; for (let i = room.deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i+1)); [room.deck[i], room.deck[j]] = [room.deck[j], room.deck[i]]; } carta = room.deck.length > 0 ? room.deck.pop() : { id: 'x'+Date.now(), cor:'vermelho', valor:'0' }; }
-  jogador.mao.push(carta);
+  const carta = sacarCartaUno(room);
   const descarteTopo = room.descarte[room.descarte.length - 1];
   const podeJogar = cartaCompativelUno(carta, descarteTopo, room.corAtual);
   io.to(code).emit('uno-carta-comprada', { jogadorId: jogador.id, jogadorNome: jogador.name, quantidade: 1 });
