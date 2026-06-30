@@ -82,7 +82,7 @@ function hideAll() { ALL_SCREENS.forEach(id => { const el = document.getElementB
 
 async function checkAuth() { const res = await fetch('/api/me'); const data = await res.json(); if (data.user) { currentUser = data.user; showHome(data.user); } else showLogin(); }
 function showLogin() { hideAll(); esconderChat(); limparMensagensChat(); document.getElementById('login-screen').classList.add('active'); }
-function showHome(user) { hideAll(); esconderChat(); limparMensagensChat(); document.getElementById('home-screen').classList.add('active'); isSpectator = false; const name = user.displayName || user.name || 'Jogador'; const photo = (user.photos && user.photos[0]) ? user.photos[0].value : ''; document.getElementById('welcome-name').textContent = name.split(' ')[0]; document.getElementById('user-name').textContent = name.split(' ')[0]; const avatar = document.getElementById('user-avatar'); if (photo) { avatar.src = photo; avatar.style.display = 'block'; } myStatus = 'alive'; meuPapel = 'cidadao'; }
+function showHome(user) { hideAll(); esconderChat(); limparMensagensChat(); document.getElementById('home-screen').classList.add('active'); isSpectator = false; const name = user.displayName || user.username || 'Jogador'; const photo = ((user.foto_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.username) + '&background=6c63ff&color=fff&size=80')s && (user.foto_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.username) + '&background=6c63ff&color=fff&size=80')s[0]) ? (user.foto_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.username) + '&background=6c63ff&color=fff&size=80')s[0].value : ''; document.getElementById('welcome-name').textContent = (user.role === 'admin' ? '\uD83D\uDC51 ' : '') + name; document.getElementById('user-name').textContent = (user.role === 'admin' ? '\uD83D\uDC51 ' : '') + name; const avatar = document.getElementById('user-avatar'); if (photo) { avatar.src = photo; avatar.style.display = 'block'; } myStatus = 'alive'; meuPapel = 'cidadao'; }
 function showJoin() { hideAll(); document.getElementById('join-screen').classList.add('active'); document.getElementById('input-codigo').value = ''; carregarSalas(); }
 function showRoom(room) { hideAll(); mostrarChat(); document.getElementById('room-screen').classList.add('active'); currentRoom = room; isSpectator = false; renderRoom(room); socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: false }); ativarMicrofone(); }
 function showSpectatorRoom(room) { hideAll(); mostrarChat(); document.getElementById('spectator-screen').classList.add('active'); currentRoom = room; isSpectator = true; const statusEl = document.getElementById('spectator-status'); if (statusEl) { const statusMap = { waiting: '⏳ Aguardando inicio', night: '🌙 Fase da Noite', voting: '☀️ Votacao em andamento', result: '📋 Resultado', ended: '🏆 Jogo Encerrado' }; statusEl.textContent = statusMap[room.status] || 'Ao vivo...'; } socket.emit('join-room', { code: room.code, userId: currentUser ? currentUser.id : null, asSpectator: true }); }
@@ -560,3 +560,107 @@ socket.on('chat-mensagem', (msg) => {
 // Inicializar chat ao carregar
 iniciarChat();
 checkAuth();
+
+
+// === SISTEMA DE AUTH PROPRIO ===
+
+// initApp é chamado pelo index.html após login bem-sucedido
+window.initApp = function(user) {
+  if (user) showHome(user);
+};
+
+// Logout
+window.fazerLogout = async function() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
+};
+
+// Atualizar foto de perfil
+window.atualizarFoto = async function() {
+  const url = prompt('Cole a URL da sua foto de perfil:');
+  if (!url) return;
+  const r = await fetch('/api/perfil/foto', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({foto_url: url}) });
+  if (r.ok) { alert('Foto atualizada! Recarregando...'); location.reload(); }
+  else alert('Erro ao atualizar foto.');
+};
+
+// Painel Admin - aprovação de cadastros e busca por telefone
+window.abrirPainelAdmin = async function() {
+  let modal = document.getElementById('admin-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'admin-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center';
+    modal.innerHTML = `
+      <div style="background:#1a1a2e;border-radius:16px;padding:24px;width:90%;max-width:480px;max-height:80vh;overflow-y:auto;color:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="margin:0;color:#6c63ff">👑 Painel Admin</h2>
+          <button onclick="document.getElementById('admin-modal').remove()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer">✕</button>
+        </div>
+        
+        <h3 style="color:#ffcc00;margin-bottom:8px">📋 Cadastros Pendentes</h3>
+        <div id="admin-pendentes" style="margin-bottom:20px">Carregando...</div>
+        
+        <h3 style="color:#6bff8e;margin-bottom:8px">🔍 Buscar por Telefone</h3>
+        <div style="display:flex;gap:8px">
+          <input id="admin-busca-tel" type="text" placeholder="00 9 0000-0000" oninput="formatarTelefoneAdmin(this)" maxlength="15" style="flex:1;padding:8px;border-radius:8px;border:1px solid #444;background:#111;color:#fff;font-size:14px">
+          <button onclick="buscarPorTelefone()" style="padding:8px 14px;border-radius:8px;border:none;background:#6c63ff;color:#fff;cursor:pointer">Buscar</button>
+        </div>
+        <div id="admin-resultado-busca" style="margin-top:10px;color:#aaa;font-size:14px"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  } else {
+    modal.style.display = 'flex';
+  }
+  carregarPendentes();
+};
+
+function formatarTelefoneAdmin(input) {
+  let v = input.value.replace(/\D/g, '').substring(0, 11);
+  if (v.length > 7) v = v.replace(/(\d{2})(\d{1})(\d{4})(\d{0,4})/, '$1 $2 $3-$4');
+  else if (v.length > 3) v = v.replace(/(\d{2})(\d{1})(\d{0,4})/, '$1 $2 $3');
+  else if (v.length > 2) v = v.replace(/(\d{2})(\d{0,1})/, '$1 $2');
+  input.value = v;
+}
+
+async function carregarPendentes() {
+  const el = document.getElementById('admin-pendentes');
+  if (!el) return;
+  const r = await fetch('/api/admin/pendentes');
+  const pendentes = await r.json();
+  if (!pendentes.length) { el.innerHTML = '<span style="color:#888">Nenhum cadastro pendente.</span>'; return; }
+  el.innerHTML = pendentes.map(p => `
+    <div style="background:#111;border-radius:8px;padding:10px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <strong>${p.username}</strong>
+        <span style="color:#888;font-size:12px;margin-left:8px">${new Date(p.created_at).toLocaleDateString('pt-BR')}</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="aprovarUser(${p.id}, 'aprovado')" style="padding:5px 10px;border-radius:6px;border:none;background:#6bff8e;color:#111;font-weight:bold;cursor:pointer">✓ Aprovar</button>
+        <button onclick="aprovarUser(${p.id}, 'rejeitado')" style="padding:5px 10px;border-radius:6px;border:none;background:#ff6b6b;color:#fff;font-weight:bold;cursor:pointer">✗ Rejeitar</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function aprovarUser(userId, acao) {
+  await fetch('/api/admin/aprovar', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({userId, acao}) });
+  carregarPendentes();
+}
+
+async function buscarPorTelefone() {
+  const tel = document.getElementById('admin-busca-tel').value;
+  const el = document.getElementById('admin-resultado-busca');
+  if (!tel) return;
+  const r = await fetch('/api/admin/buscar-telefone?tel=' + encodeURIComponent(tel));
+  const results = await r.json();
+  if (!results.length) { el.innerHTML = '<span style="color:#ff6b6b">Nenhum usuário encontrado.</span>'; return; }
+  el.innerHTML = results.map(u => `
+    <div style="background:#111;border-radius:8px;padding:10px;margin-top:6px">
+      <strong>${u.username}</strong>
+      <span style="color:#6c63ff;font-size:12px;margin-left:8px">${u.status}</span><br>
+      <span style="color:#888;font-size:12px">Tel: ${u.telefone} | Último login: ${u.ultimo_login ? new Date(u.ultimo_login).toLocaleDateString('pt-BR') : 'Nunca'}</span>
+    </div>
+  `).join('');
+}
