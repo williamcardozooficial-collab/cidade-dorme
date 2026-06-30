@@ -2,8 +2,8 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -406,19 +406,146 @@ setTimeout(() => iniciarNovaRodada(roomCode), 5000);
 }
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(session({ secret: process.env.SESSION_SECRET || 'cidade-dorme-secret', resave: false, saveUninitialized: false }));
-app.use(passport.initialize());
-app.use(passport.session());
-passport.use(new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, callbackURL: process.env.CALLBACK_URL || '/auth/google/callback' }, (at, rt, profile, done) => done(null, profile)));
-passport.serializeUser((u, done) => done(null, u));
-passport.deserializeUser((u, done) => done(null, u));
-app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => res.redirect('/'));
-app.get('/auth/logout', (req, res) => { req.logout(() => res.redirect('/')); });
-app.get('/api/me', (req, res) => { if (req.isAuthenticated()) res.json({ user: req.user }); else res.json({ user: null }); });
-app.get('/api/rooms', (req, res) => {
-const list = Object.values(rooms).map(r => ({ code: r.code, players: r.players.length, spectators: r.spectators || 0, status: r.status, minPlayers: r.minPlayers, host: (r.players.find(p => p.isHost) || {}).name || 'Host' }));
-res.json({ rooms: list });
+// === BANCO DE DADOS ===
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+
+// Criar tabela de usuarios se nao existir
+pool.query(`
+  CREATE TABLE IF NOT EXISTS cd_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    telefone VARCHAR(20) NOT NULL,
+    foto_url TEXT DEFAULT '',
+    role VARCHAR(10) DEFAULT 'user',
+    status VARCHAR(10) DEFAULT 'pendente',
+    ultimo_login TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  // Garantir que admin existe
+  const adminHash = '$2a$10$8K1p/a0dclxB2o7c6P3R4OzARBlCWxiWaG.bVEJW3Y5x4nY1hKk3a'; // A918416b
+  pool.query(`
+    INSERT INTO cd_users (username, password, telefone, role, status, ultimo_login)
+    VALUES ('WilliamCardozo', $1, '54900000000', 'admin', 'aprovado', NOW())
+    ON CONFLICT (username) DO NOTHING
+  `, [adminHash]);
+}).catch(console.error);
+
+// Limpeza automatica: deletar usuarios inativos por 90 dias (exceto admin)
+setInterval(async () => {
+  try {
+    await pool.query(`
+      DELETE FROM cd_users
+      WHERE role != 'admin'
+      AND ultimo_login < NOW() - INTERVAL '90 days'
+    `);
+  } catch(e) { console.error('Limpeza 90 dias:', e.message); }
+}, 24 * 60 * 60 * 1000); // roda 1x por dia
+
+// === SESSION ===
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'cidade-dorme-secret-2024',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+}));
+
+app.use(express.json());
+
+// === ROTAS DE AUTH ===
+
+// Cadastro
+app.post('/api/cadastro', async (req, res) => {
+  try {
+    const { username, password, telefone } = req.body;
+    if (!username || !password || !telefone) return res.status(400).json({ error: 'Preencha todos os campos.' });
+    // Validar telefone: formato 00 9 0000-0000 = 11 digitos
+    const tel = telefone.replace(/\D/g, '');
+    if (tel.length !== 11) return res.status(400).json({ error: 'Telefone inválido. Use o formato: 00 9 0000-0000' });
+    if (username.length < 3 || username.length > 30) return res.status(400).json({ error: 'Nome de usuário deve ter entre 3 e 30 caracteres.' });
+    const hash = await bcrypt.hash(password, 10);
+    await pool.query(
+      'INSERT INTO cd_users (username, password, telefone, status) VALUES ($1, $2, $3, $4)',
+      [username, hash, tel, 'pendente']
+    );
+    res.json({ ok: true, message: 'Cadastro realizado! Aguarde aprovação do admin.' });
+  } catch(e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe.' });
+    res.status(500).json({ error: 'Erro no servidor.' });
+  }
+});
+
+// Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const r = await pool.query('SELECT * FROM cd_users WHERE LOWER(username) = LOWER($1)', [username]);
+    const user = r.rows[0];
+    if (!user) return res.status(401).json({ error: 'Usuário não encontrado.' });
+    if (user.status === 'pendente') return res.status(403).json({ error: 'Cadastro aguardando aprovação do admin.' });
+    if (user.status === 'rejeitado') return res.status(403).json({ error: 'Cadastro rejeitado.' });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: 'Senha incorreta.' });
+    await pool.query('UPDATE cd_users SET ultimo_login = NOW() WHERE id = $1', [user.id]);
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.role = user.role;
+    res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role, foto_url: user.foto_url } });
+  } catch(e) {
+    res.status(500).json({ error: 'Erro no servidor.' });
+  }
+});
+
+// Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ ok: true });
+});
+
+// Quem sou eu
+app.get('/api/me', async (req, res) => {
+  if (!req.session.userId) return res.json({ user: null });
+  try {
+    const r = await pool.query('SELECT id, username, role, foto_url, status FROM cd_users WHERE id = $1', [req.session.userId]);
+    const user = r.rows[0];
+    if (!user) { req.session.destroy(); return res.json({ user: null }); }
+    res.json({ user });
+  } catch(e) { res.json({ user: null }); }
+});
+
+// Atualizar foto de perfil
+app.post('/api/perfil/foto', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Não autenticado.' });
+  const { foto_url } = req.body;
+  await pool.query('UPDATE cd_users SET foto_url = $1 WHERE id = $2', [foto_url || '', req.session.userId]);
+  res.json({ ok: true });
+});
+
+// === ROTAS DE ADMIN ===
+
+// Listar cadastros pendentes
+app.get('/api/admin/pendentes', async (req, res) => {
+  if (req.session.role !== 'admin') return res.status(403).json({ error: 'Acesso negado.' });
+  const r = await pool.query("SELECT id, username, created_at FROM cd_users WHERE status = 'pendente' ORDER BY created_at ASC");
+  res.json(r.rows);
+});
+
+// Aprovar ou rejeitar
+app.post('/api/admin/aprovar', async (req, res) => {
+  if (req.session.role !== 'admin') return res.status(403).json({ error: 'Acesso negado.' });
+  const { userId, acao } = req.body; // acao: 'aprovado' ou 'rejeitado'
+  await pool.query('UPDATE cd_users SET status = $1 WHERE id = $2', [acao, userId]);
+  res.json({ ok: true });
+});
+
+// Buscar usuario por telefone
+app.get('/api/admin/buscar-telefone', async (req, res) => {
+  if (req.session.role !== 'admin') return res.status(403).json({ error: 'Acesso negado.' });
+  const tel = (req.query.tel || '').replace(/\D/g, '');
+  if (!tel) return res.status(400).json({ error: 'Informe o telefone.' });
+  const r = await pool.query('SELECT id, username, telefone, status, ultimo_login, created_at FROM cd_users WHERE telefone = $1', [tel]);
+  res.json(r.rows);
 });
 app.post('/api/rooms', (req, res) => {
 if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
