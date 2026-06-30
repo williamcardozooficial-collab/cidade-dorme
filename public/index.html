@@ -47,7 +47,9 @@
 <div class="header-right">
 <img id="user-avatar" src="" alt="" style="display:none;width:36px;height:36px;border-radius:50%;">
 <span id="user-name"></span>
-<a href="/auth/logout" class="btn-sair">Sair</a>
+<button onclick="fazerLogout()" class="btn-sair" style="background:none;border:1px solid #ff6b6b;color:#ff6b6b;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px">Sair</button>
+<button onclick="atualizarFoto()" style="background:none;border:1px solid #6c63ff;color:#6c63ff;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:6px">📷 Foto</button>
+<button id="btn-admin-panel" onclick="abrirPainelAdmin()" style="display:none;background:none;border:1px solid #ffcc00;color:#ffcc00;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:6px">👑 Admin</button>
 </div>
 </header>
 <main class="home-main">
@@ -258,6 +260,7 @@ async function fazerLogin() {
     const data = await r.json();
     if (!r.ok) { msg.textContent = data.error || 'Erro ao entrar.'; return; }
     document.getElementById('login-screen').style.display = 'none';
+    if (data.user && data.user.role === 'admin') { const ab = document.getElementById('btn-admin-panel'); if (ab) ab.style.display = ''; }
     if (typeof initApp === 'function') initApp(data.user);
   } catch(e) { msg.textContent = 'Erro de conexão.'; }
 }
