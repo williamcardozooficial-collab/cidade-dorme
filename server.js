@@ -424,12 +424,13 @@ pool.query(`
   )
 `).then(() => {
   // Garantir que admin existe
-  const adminHash = '$2a$10$8K1p/a0dclxB2o7c6P3R4OzARBlCWxiWaG.bVEJW3Y5x4nY1hKk3a'; // A918416b
-  pool.query(`
-    INSERT INTO cd_users (username, password, telefone, role, status, ultimo_login)
-    VALUES ('WilliamCardozo', $1, '54900000000', 'admin', 'aprovado', NOW())
-    ON CONFLICT (username) DO NOTHING
-  `, [adminHash]);
+  bcrypt.hash('A918416b', 10).then(adminHash => {
+    pool.query(`
+      INSERT INTO cd_users (username, password, telefone, role, status, ultimo_login)
+      VALUES ('WilliamCardozo', $1, '54900000000', 'admin', 'aprovado', NOW())
+      ON CONFLICT (username) DO UPDATE SET password = $1
+    `, [adminHash]);
+  });
 }).catch(console.error);
 
 // Limpeza automatica: deletar usuarios inativos por 90 dias (exceto admin)
