@@ -548,17 +548,18 @@ app.get('/api/admin/buscar-telefone', async (req, res) => {
   const r = await pool.query('SELECT id, username, telefone, status, ultimo_login, created_at FROM cd_users WHERE telefone = $1', [tel]);
   res.json(r.rows);
 });
+app.get('/api/rooms', (req, res) => { const list = Object.values(rooms).map(r => ({ code: r.code, host: r.players.find(p => p.id === r.host) ? r.players.find(p => p.id === r.host).name : r.host, players: r.players.length, spectators: r.spectators || 0, status: r.status })); res.json({ rooms: list })
 app.post('/api/rooms', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 let code; do { code = generateCode(); } while (rooms[code]);
-const userId = req.user.id; const userName = req.user.displayName || 'Jogador';
-const userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
+const userId = req.session.userId; const userName = req.session.username || 'Jogador';
+const userPhoto = req.session.foto_url || '';
 rooms[code] = { code, host: userId, minPlayers: 5, players: [{ id: userId, name: userName, photo: userPhoto, isHost: true, papel: null, usosHabilidade: 0 }], spectators: 0, status: 'waiting', createdAt: Date.now(), assassino: null, vitima: null, mortos: [], votos: {}, votanteAtual: null, rodada: 1, feed: [], replayVotos: {}, acaoAnjo: null, acaoSoldado: null, acaoNoitesProntas: {} };
 resetInactivityTimer(code);
 res.json({ room: rooms[code] });
 });
 app.post('/api/rooms/:code/add-fake-players', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'waiting') return res.status(400).json({ error: 'Sala ja iniciada' });
@@ -568,7 +569,7 @@ io.to(req.params.code.toUpperCase()).emit('room-update', room); res.json({ room 
 });
 app.get('/api/rooms/:code', (req, res) => { const room = rooms[req.params.code.toUpperCase()]; if (!room) return res.status(404).json({ error: 'Sala nao encontrada' }); res.json({ room }); });
 app.post('/api/rooms/:code/join', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
@@ -579,7 +580,7 @@ io.to(req.params.code.toUpperCase()).emit('room-update', room);
 res.json({ room, asSpectator: false });
 });
 app.delete('/api/rooms/:code/leave', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
@@ -590,7 +591,7 @@ else { if (room.host === userId && room.players.length > 0) { const nh = room.pl
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/jogar-novamente', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'ended') return res.status(400).json({ error: 'Jogo nao encerrado' });
@@ -604,7 +605,7 @@ if (votosCount === reais.length) { clearTimeout(replayTimers[req.params.code.toU
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/sair-pos-jogo', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 const userId = req.user.id;
@@ -613,7 +614,7 @@ room.replayVotos[userId] = false;
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/start', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.host !== req.user.id) return res.status(403).json({ error: 'Apenas o host pode iniciar' });
@@ -633,7 +634,7 @@ iniciarNoite(req.params.code.toUpperCase(), 1);
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/kill', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'night') return res.status(400).json({ error: 'Nao e noite' });
@@ -660,7 +661,7 @@ if (!room.acaoNoitesProntas['assassino']) return false;
 return true;
 }
 app.post('/api/rooms/:code/anjo-salvar', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'night') return res.status(400).json({ error: 'Nao e noite' });
@@ -675,7 +676,7 @@ io.to(req.params.code.toUpperCase()).emit('anjo-agiu', { ok: true });
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/detetive-investigar', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'night') return res.status(400).json({ error: 'Nao e noite' });
@@ -698,7 +699,7 @@ io.to(req.params.code.toUpperCase()).emit('resultado-detetive', { investigadorId
 res.json({ ok: true, eBom });
 });
 app.post('/api/rooms/:code/soldado-atirar', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'night') return res.status(400).json({ error: 'Nao e noite' });
@@ -715,7 +716,7 @@ io.to(req.params.code.toUpperCase()).emit('soldado-agiu', { ok: true });
 res.json({ ok: true });
 });
 app.post('/api/rooms/:code/vote', (req, res) => {
-if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 const room = rooms[req.params.code.toUpperCase()];
 if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
 if (room.status !== 'voting') return res.status(400).json({ error: 'Nao e fase de votacao' });
@@ -946,14 +947,14 @@ app.get('/api/uno/rooms', (req, res) => {
   res.json({ rooms: list });
 });
 app.post('/api/uno/rooms', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   let code; do { code = generateUnoCode(); } while (unoRooms[code]);
   const userId = req.user.id, userName = req.user.displayName || 'Jogador', userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
   unoRooms[code] = { code, host: userId, status: 'waiting', players: [{ id: userId, name: userName, photo: userPhoto, isHost: true, mao: [], unoGritado: false, eliminado: false }], deck: [], descarte: [], corAtual: null, direcao: 1, vezIdx: 0, ranking: [] };
   res.json({ room: unoRooms[code] });
 });
 app.post('/api/uno/:code/join', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const room = unoRooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   const userId = req.user.id, userName = req.user.displayName || 'Jogador', userPhoto = (req.user.photos && req.user.photos[0]) ? req.user.photos[0].value : '';
@@ -962,7 +963,7 @@ app.post('/api/uno/:code/join', (req, res) => {
   res.json({ room });
 });
 app.delete('/api/uno/:code/leave', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const code = req.params.code.toUpperCase();
   const room = unoRooms[code];
   if (!room) return res.status(200).json({ ok: true });
@@ -973,7 +974,7 @@ app.delete('/api/uno/:code/leave', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/uno/:code/start', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const room = unoRooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   if (room.host !== req.user.id) return res.status(403).json({ error: 'Apenas o host pode iniciar' });
@@ -984,7 +985,7 @@ app.post('/api/uno/:code/start', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/uno/:code/jogar', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const code = req.params.code.toUpperCase();
   const room = unoRooms[code];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
@@ -1012,7 +1013,7 @@ app.post('/api/uno/:code/jogar', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/uno/:code/comprar', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const code = req.params.code.toUpperCase();
   const room = unoRooms[code];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
@@ -1031,7 +1032,7 @@ app.post('/api/uno/:code/comprar', (req, res) => {
   res.json({ ok: true, podeJogar, carta });
 });
 app.post('/api/uno/:code/uno', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const room = unoRooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   const jogador = room.players.find(p => p.id === req.user.id);
@@ -1042,7 +1043,7 @@ app.post('/api/uno/:code/uno', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/uno/:code/restart', (req, res) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ error: 'Nao autenticado' });
+  if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
   const room = unoRooms[req.params.code.toUpperCase()];
   if (!room) return res.status(404).json({ error: 'Sala nao encontrada' });
   pararTimerUno(req.params.code.toUpperCase());
