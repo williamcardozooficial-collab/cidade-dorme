@@ -548,7 +548,7 @@ app.get('/api/admin/buscar-telefone', async (req, res) => {
   const r = await pool.query('SELECT id, username, telefone, status, ultimo_login, created_at FROM cd_users WHERE telefone = $1', [tel]);
   res.json(r.rows);
 });
-app.get('/api/rooms', (req, res) => { const list = Object.values(rooms).map(r => ({ code: r.code, host: r.players.find(p => p.id === r.host) ? r.players.find(p => p.id === r.host).name : r.host, players: r.players.length, spectators: r.spectators || 0, status: r.status })); res.json({ rooms: list })
+app.get('/api/rooms', (req, res) => { const list = Object.values(rooms).map(r => ({ code: r.code, host: r.players.find(p => p.id === r.host) ? r.players.find(p => p.id === r.host).name : r.host, players: r.players.length, spectators: r.spectators || 0, status: r.status })); res.json({ rooms: list }); });; });
 app.post('/api/rooms', (req, res) => {
 if (!req.session.userId) return res.status(401).json({ error: 'Nao autenticado' });
 let code; do { code = generateCode(); } while (rooms[code]);
